@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, vec};
 
 fn main() {
     println!("Hello, rust tokenizer!");
@@ -11,6 +11,7 @@ fn main() {
     // Could have all of the different types of tokenizers here to see how they change for the same
     // prompt
 
+    let char_by_char = tokenize_by_char(&prompt);
     let word_by_word = tokenize_by_word(&prompt);
 
     // DISPLAY
@@ -24,6 +25,7 @@ fn main() {
     // Some ideas on displays with just the tokenizer itself were to figure out the compresion ratio
     // it was able to determine and printing out the merged tokens to see the patterns it learned
     println!("{word_by_word:?}");
+    println!("{char_by_char:?}");
 }
 
 fn take_input() -> String {
@@ -32,10 +34,18 @@ fn take_input() -> String {
     prompt
 }
 
-fn tokenize_by_char(prompt: &String) -> Vec<String> {
-    todo!()
+// Changed to slice since we don't need a String and a heap reference
+fn tokenize_by_char(prompt: &str) -> Vec<char> {
+    let mut tokens: Vec<char> = vec![];
+
+    for c in prompt.chars() {
+        tokens.push(c);
+    }
+    tokens
 }
-fn tokenize_by_word(prompt: &String) -> Vec<String> {
+
+// Changed to slice since we don't need a String and a heap reference
+fn tokenize_by_word(prompt: &str) -> Vec<String> {
     let mut tokens: Vec<String> = vec![];
 
     // Should we go character by character and implement matching or is that overkill?

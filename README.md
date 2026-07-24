@@ -9,3 +9,5 @@ I'm interested in finding out what makes a good tokenizer and what the algorithm
 For my analysis on tokenizers and how I went about my approach [RESEARCH.md]
 
 The tokenizer that I decided to implement and focus the most around is [BPE](/RESEARCH.md#bpe-byte-pair-encoding) there is novelty in the others but I wanted to have something fun to work on from a performance aspect and thought it lined up well with the overall tech/ai atmosphere. So a good combination of my interests and the way tech is going
+
+The final goal is to optimize something down to beat tiktoken at some specific task which seems feasible

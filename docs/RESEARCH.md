@@ -12,6 +12,8 @@ Without tokenizers LLMs struggle to understand the prompt as it's not as evident
 
 ## How are tokenizers trained
 
+They're trained by collecting a **text corpus** which is a large collection of spoken text. This in combination with a tokenization method is done to build up the vocabulary of the tokenizer and have it be able to break up common language into tokens for the llm to understand. A tokenizer with a poor vocabulary will struggle to break up the prompt in a way that a llm can meaningfully understand and will increase the amount of compute it takes to understand the same phrase.
+
 ## What are the different types of tokenizers?
 
 #### The simplest tokenizer
@@ -25,6 +27,8 @@ The pros of this is that we're able to simply understand what a token is, the is
 ## How do large language models use different tokenizers for different purposes?
 
 ## How do you implement a tokenizer?
+
+It can't just be a simple algorithm like breaking up a prompt word by word can it?
 
 Something I'm referencing as I'm learning more about this
 [blog post](https://rishijeet.github.io/blog/from-text-to-tokens-the-complete-guide-to-tokenization-in-llms/)

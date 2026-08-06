@@ -1,18 +1,18 @@
 use std::{env, vec};
 
-fn main() {
+fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!");
 
     // We need to take in input "prompt"
-    let prompt = take_input();
+    let prompt = take_input()?;
 
     // Tokenize the prompt
 
     // Could have all of the different types of tokenizers here to see how they change for the same
     // prompt
 
-    let char_by_char = tokenize_by_char(&prompt);
-    let word_by_word = tokenize_by_word(&prompt);
+    let char_by_char = tokenize_by_char(prompt.clone());
+    let word_by_word = tokenize_by_word(prompt.clone());
 
     // DISPLAY
     println!("{prompt:?}");
@@ -26,16 +26,18 @@ fn main() {
     // it was able to determine and printing out the merged tokens to see the patterns it learned
     println!("{word_by_word:?}");
     println!("{char_by_char:?}");
+    Ok(())
 }
 
-fn take_input() -> String {
+fn take_input() -> Result<String, String> {
     let args: Vec<String> = env::args().collect();
-    let prompt: String = args[1].clone();
-    prompt
+    match args.get(1) {
+        Some(prompt) => Ok(prompt.to_string()),
+        None => Err("No prompt provided".to_string()),
+    }
 }
 
-// Changed to slice since we don't need a String and a heap reference
-fn tokenize_by_char(prompt: &str) -> Vec<char> {
+fn tokenize_by_char(prompt: String) -> Vec<char> {
     let mut tokens: Vec<char> = vec![];
 
     for c in prompt.chars() {
@@ -44,8 +46,7 @@ fn tokenize_by_char(prompt: &str) -> Vec<char> {
     tokens
 }
 
-// Changed to slice since we don't need a String and a heap reference
-fn tokenize_by_word(prompt: &str) -> Vec<String> {
+fn tokenize_by_word(prompt: String) -> Vec<String> {
     let mut tokens: Vec<String> = vec![];
 
     // Should we go character by character and implement matching or is that overkill?

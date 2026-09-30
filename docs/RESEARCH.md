@@ -30,5 +30,7 @@ The pros of this is that we're able to simply understand what a token is, the is
 
 It can't just be a simple algorithm like breaking up a prompt word by word can it?
 
+## Are more or less tokens better?
+
 Something I'm referencing as I'm learning more about this
 [blog post](https://rishijeet.github.io/blog/from-text-to-tokens-the-complete-guide-to-tokenization-in-llms/)

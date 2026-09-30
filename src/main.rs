@@ -1,7 +1,7 @@
-use std::{env, vec};
+use std::env;
 
 fn main() -> Result<(), String> {
-    println!("Hello, rust tokenizer!");
+    println!("Hello, rust tokenizer!\n");
 
     // We need to take in input "prompt"
     let prompt = take_input()?;
@@ -11,11 +11,12 @@ fn main() -> Result<(), String> {
     // Could have all of the different types of tokenizers here to see how they change for the same
     // prompt
 
-    let char_by_char = tokenize_by_char(prompt.clone());
     let word_by_word = tokenize_by_word(prompt.clone());
+    let char_by_char = tokenize_by_char(prompt.clone());
+    let byte_by_byte = tokenize_by_byte(prompt.clone());
 
     // DISPLAY
-    println!("{prompt:?}");
+    println!("Prompt: {prompt:?}\n");
 
     // Should consider running this into a llm or having some visual/demonstration of how each
     // tokenizer works and the performance of it. That might be something to do after the tokenizers
@@ -24,8 +25,9 @@ fn main() -> Result<(), String> {
     //
     // Some ideas on displays with just the tokenizer itself were to figure out the compresion ratio
     // it was able to determine and printing out the merged tokens to see the patterns it learned
-    println!("{word_by_word:?}");
-    println!("{char_by_char:?}");
+    println!("Tokenizing word by word: {word_by_word:?}\n");
+    println!("Tokenizing char by char: {char_by_char:?}\n");
+    println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
     Ok(())
 }
 
@@ -36,6 +38,10 @@ fn take_input() -> Result<String, String> {
         None => Err("No prompt provided".to_string()),
     }
 }
+
+// TOKENIZERS
+// TODO: Implement some form of matching since there is a lot of duplicated code between each
+// tokenizing type
 
 fn tokenize_by_char(prompt: String) -> Vec<char> {
     let mut tokens: Vec<char> = vec![];
@@ -63,6 +69,16 @@ fn tokenize_by_word(prompt: String) -> Vec<String> {
 
     for word in prompt.split_whitespace() {
         tokens.push(word.to_string());
+    }
+
+    tokens
+}
+
+fn tokenize_by_byte(prompt: String) -> Vec<u8> {
+    let mut tokens = vec![];
+
+    for byte in prompt.bytes() {
+        tokens.push(byte);
     }
 
     tokens

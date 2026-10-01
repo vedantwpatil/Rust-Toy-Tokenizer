@@ -11,9 +11,9 @@ fn main() -> Result<(), String> {
     // Could have all of the different types of tokenizers here to see how they change for the same
     // prompt
 
-    let word_by_word = tokenize_by_word(prompt.clone());
-    let char_by_char = tokenize_by_char(prompt.clone());
-    let byte_by_byte = tokenize_by_byte(prompt.clone());
+    let word_by_word = tokenize_by_word(&prompt);
+    let char_by_char = tokenize_by_char(&prompt);
+    let byte_by_byte = tokenize_by_byte(&prompt);
 
     // DISPLAY
     println!("Prompt: {prompt:?}\n");
@@ -32,54 +32,24 @@ fn main() -> Result<(), String> {
 }
 
 fn take_input() -> Result<String, String> {
-    let args: Vec<String> = env::args().collect();
-    match args.get(1) {
-        Some(prompt) => Ok(prompt.to_string()),
-        None => Err("No prompt provided".to_string()),
-    }
+    env::args()
+        .nth(1)
+        .ok_or_else(|| "No prompt provided".to_string())
 }
 
 // TOKENIZERS
-// TODO: Implement some form of matching since there is a lot of duplicated code between each
-// tokenizing type
 
-fn tokenize_by_char(prompt: String) -> Vec<char> {
-    let mut tokens: Vec<char> = vec![];
-
-    for c in prompt.chars() {
-        tokens.push(c);
-    }
-    tokens
+fn tokenize_by_char(prompt: &str) -> Vec<char> {
+    prompt.chars().collect()
 }
 
-fn tokenize_by_word(prompt: String) -> Vec<String> {
-    let mut tokens: Vec<String> = vec![];
-
-    // Should we go character by character and implement matching or is that overkill?
-    // The logic would probably be duplicated for others
-    //
-    // I think it's more important to not and do something simpler that way we can effectively
-    // compare it later down the line
-    //
-    // Considering a few approaches right now, either for loop where we look word by word (need to
-    // figure out how to do that in rust)
-    //
-    // While loop where we go letter by letter and match for the types of characters we'd be
-    // expecting, the matching seems elegant but overkill
-
-    for word in prompt.split_whitespace() {
-        tokens.push(word.to_string());
-    }
-
-    tokens
+fn tokenize_by_word(prompt: &str) -> Vec<String> {
+    prompt
+        .split_whitespace()
+        .map(std::string::ToString::to_string)
+        .collect()
 }
 
-fn tokenize_by_byte(prompt: String) -> Vec<u8> {
-    let mut tokens = vec![];
-
-    for byte in prompt.bytes() {
-        tokens.push(byte);
-    }
-
-    tokens
+fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
+    prompt.bytes().collect()
 }

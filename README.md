@@ -1,13 +1,13 @@
 # Rust Tokenizer
 
-I think I have a big misunderstanding in what a tokenizer is and need to address that before I go on to attempt implementing it. 3b1b save me
+For my analysis on tokenizers and how I went about my approach [analysis](./docs/RESEARCH.md)
 
-This might be apart of a greater ai chain but currently just focusing on creating a tokenizer in rust that I could use to feed to a llm. Seems like a fun problem to work on where you take in a input string "prompt" and split it up into words
+Plan to implement multiple types of tokenizers and experiment with "outdated" tokenizers before building a [BPE](./docs/RESEARCH.md#bpe-byte-pair-encoding) tokenizer from scratch
+
+The main goal of this is to be able to learn about how the inference pipeline works in a lot of common machine learning pipelines. The way that we'll learn this is by first creating a tokenizer, then creating the respective components around the tokenizer to feed into a model to do inference and then finally use this inference pipeline to create my own harness. Everything should be created from scratch and in rust with writing some bindings to python to be able to call some of the crates for performance testing against other inference pipelines.
+
+### Personal Notes
+
+This might be apart of a greater ai chain but currently just focusing on creating a tokenizer in rust that I could use to feed to a llm. Seems like a fun problem to work on where you take in a input string "prompt" and split it up into words and then could use this to get a better understanding of how inference pipelines work and develop a better understanding of what a harness is.
 
 I'm interested in finding out what makes a good tokenizer and what the algorithm the best tokenizers implement are
-
-For my analysis on tokenizers and how I went about my approach [RESEARCH.md]
-
-The tokenizer that I decided to implement and focus the most around is [BPE](/RESEARCH.md#bpe-byte-pair-encoding) there is novelty in the others but I wanted to have something fun to work on from a performance aspect and thought it lined up well with the overall tech/ai atmosphere. So a good combination of my interests and the way tech is going
-
-The final goal is to build the entire inference pipeline myself from scratch in rust and have it be performant. After building the entire inference pipeline we can then search into optimizing specific stages for specific tasks

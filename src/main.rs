@@ -1,4 +1,5 @@
-use std::env;
+use regex::Regex;
+use std::{collections::HashMap, env};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -52,4 +53,37 @@ fn tokenize_by_word(prompt: &str) -> Vec<String> {
 
 fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
     prompt.bytes().collect()
+}
+
+fn tokenize_bpe(prompt: &str) -> Vec<String> {
+    let mut corpus = "";
+    if prompt.len() > 10 {
+        corpus = prompt;
+    }
+
+    let corpus = [
+        "This is the hugging face course",
+        "This chapter is about tokenization",
+        "This section shows several tokenizer algorithms",
+        "Hopefully, you will be able to understand how they are trained and generate tokens.",
+    ];
+
+    // Pre tokenize
+    let mut word_freqs: HashMap<&str, i32> = HashMap::new();
+
+    let re =
+        Regex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+'")
+            .unwrap();
+
+    for word in corpus {
+        // Pre tokenize
+    }
+
+    todo!()
+}
+
+// Regex match pattern
+// 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
+fn pre_tokenize() {
+    todo!()
 }

@@ -16,13 +16,29 @@ They're trained by collecting a **text corpus** which is a large collection of s
 
 ## What are the different types of tokenizers?
 
-#### The simplest tokenizer
+### The simplest tokenizer
 
 The most basic type of tokenizer would be just each individual character is a token
 
 The pros of this is that we're able to simply understand what a token is, the issue is that it isn't very helpful in determining understanding of our text
 
-#### BPE (Byte Pair Encoding)
+### BPE (Byte Pair Encoding)
+
+**Definition**:
+Byte Pair Encoding training starts by computing the unique set of words used in the corpus (after the normalization and pre-tokenization steps are completed), then building the vocabulary by taking all the symbols used to write those words.
+
+#### What does that actually mean?
+
+First phrase that looks somewhat unfamiliar is corpus.
+
+**Corpus Definition**: A corpus is the collection of text data used to train the tokenizer which helps it identify the most frequent pairs of tokens
+
+What are the normalization and pre-tokenization steps?
+
+**BPE Architecture**
+
+We have three major steps  
+normalization, pre-tokenization, splitting words into individual characters, merging the appropriate characters together depending on the rules learned
 
 ## How do large language models use different tokenizers for different purposes?
 
@@ -34,3 +50,5 @@ It can't just be a simple algorithm like breaking up a prompt word by word can i
 
 Something I'm referencing as I'm learning more about this
 [blog post](https://rishijeet.github.io/blog/from-text-to-tokens-the-complete-guide-to-tokenization-in-llms/)
+[hugging face post](https://deepwiki.com/huggingface/tokenizers/5.1-bpe-training)
+[secondary hugging face post](https://huggingface.co/learn/llm-course/chapter6/5)

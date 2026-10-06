@@ -1,4 +1,4 @@
-use regex::Regex;
+use fancy_regex::Regex;
 use std::{collections::HashMap, env};
 
 fn main() -> Result<(), String> {
@@ -72,7 +72,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     let mut word_freqs: HashMap<&str, i32> = HashMap::new();
 
     let re =
-        Regex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+'")
+        Regex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")
             .unwrap();
 
     for word in corpus {

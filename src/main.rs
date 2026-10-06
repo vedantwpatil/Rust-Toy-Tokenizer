@@ -30,6 +30,7 @@ fn main() -> Result<(), String> {
     println!("Tokenizing word by word: {word_by_word:?}\n");
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
+    // println!("Tokenize with BPE: {bpe}\n");
     Ok(())
 }
 
@@ -86,13 +87,5 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
 // 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
 
 fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {
-    //     re.find_iter(text).map(|m| ).collect()
-    let mut pieces = Vec::new();
-    for m in re.find_iter(text) {
-        // println!("{:?}", m);
-        let temp = m.unwrap();
-        pieces.push(temp.as_str());
-    }
-    // println!("{:?}", pieces);
-    pieces
+    re.find_iter(text).map(|m| m.unwrap().as_str()).collect()
 }

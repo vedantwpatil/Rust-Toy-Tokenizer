@@ -52,3 +52,4 @@ Something I'm referencing as I'm learning more about this
 [blog post](https://rishijeet.github.io/blog/from-text-to-tokens-the-complete-guide-to-tokenization-in-llms/)
 [hugging face post](https://deepwiki.com/huggingface/tokenizers/5.1-bpe-training)
 [secondary hugging face post](https://huggingface.co/learn/llm-course/chapter6/5)
+Great [video ](https://youtu.be/_xM8scs4_x4) explaining the current state of LLM inference providers. Helps explain the question of what is the llm inference service that is provided

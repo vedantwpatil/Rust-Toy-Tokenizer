@@ -69,23 +69,56 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         ]
     };
 
+    println!("Corpus: {corpus:?}\n");
+
     // Pre tokenize
     let mut word_freqs: HashMap<&str, i32> = HashMap::new();
 
-    let re =
-        Regex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")
-            .unwrap();
+    let re = Regex::new(GPT2_PATTERN).unwrap();
 
     // pre_tokenize step?
     for text in corpus {
         let tokenize = pre_tokenize(&re, text);
+        // Next step is the compute the frequency of each word in the tokenized corpus
+        for word in tokenize {
+            *word_freqs.entry(word).or_insert(0) += 1;
+        }
     }
+
+    // Sorting for printing
+    descending_sort(&word_freqs);
+
+    let mut alphabet: Vec<char> = Vec::new();
+    for word in word_freqs.keys() {
+        for letter in word.chars() {
+            if !alphabet.contains(&letter) {
+                alphabet.push(letter);
+            }
+        }
+    }
+
+    alphabet.sort();
+    println!("Alphabet: {alphabet:?}\n");
+
     todo!()
 }
 
 // Regex match pattern
-// 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
+const GPT2_PATTERN: &str =
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
 fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {
     re.find_iter(text).map(|m| m.unwrap().as_str()).collect()
 }
+
+fn descending_sort(word_freqs: &HashMap<&str, i32>) {
+    let mut sorted: Vec<_> = word_freqs.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    for (word, count) in sorted {
+        println!("Count: {count:>3}, \tWord: {word:?}");
+    }
+    println!();
+}
+
+#[cfg(test)]
+mod tests;

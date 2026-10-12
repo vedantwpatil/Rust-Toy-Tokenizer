@@ -1,5 +1,5 @@
 use fancy_regex::Regex;
-use std::{collections::HashMap, env, hash::Hash};
+use std::{collections::HashMap, env};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -114,9 +114,12 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         }
         splits.insert(word, vec_of_chars);
     }
-    println!("{splits:?}");
+    println!("Word[char] Dictionary: {splits:?}\n");
 
-    let value = compute_pair_freqs(splits, &word_freqs);
+    let pair_freqs = compute_pair_freqs(splits, &word_freqs);
+
+    // Sorted for printing
+    descending_pair_sort(&pair_freqs);
     todo!()
 }
 
@@ -128,14 +131,8 @@ fn compute_pair_freqs(
 
     for (word, freq) in word_freqs {
         let split = splits[word].clone();
-        if split.len() == 1 {
-            continue;
-        }
-        for i in 0..split.len() - 1 {
-            let pair = (
-                split.get(i).unwrap().to_string(),
-                split.get(i + 1).unwrap().to_string(),
-            );
+        for window in split.windows(2) {
+            let pair = (window[0].clone(), window[1].clone());
             *pair_freqs.entry(pair).or_insert(0) += freq;
         }
     }
@@ -151,10 +148,21 @@ fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {
 }
 
 fn descending_sort(word_freqs: &HashMap<&str, i32>) {
+    println!("Word Frequency Dictionary:");
     let mut sorted: Vec<_> = word_freqs.iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
     for (word, count) in sorted {
         println!("Count: {count:>3}, \tWord: {word:?}");
+    }
+    println!();
+}
+
+fn descending_pair_sort(pair_freqs: &HashMap<(String, String), i32>) {
+    println!("BPE Dictionary:");
+    let mut sorted: Vec<_> = pair_freqs.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    for (pair, count) in sorted {
+        println!("Count: {count:>3}, \tPair: {pair:?}");
     }
     println!();
 }

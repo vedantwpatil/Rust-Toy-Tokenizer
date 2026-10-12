@@ -1,5 +1,5 @@
 use fancy_regex::Regex;
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, hash::Hash};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -97,10 +97,49 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         }
     }
 
-    alphabet.sort();
+    alphabet.sort_unstable();
     println!("Alphabet: {alphabet:?}\n");
 
+    let mut vocab: Vec<String> = vec!["<|endoftext|>".to_string()];
+    vocab.extend(alphabet.iter().map(std::string::ToString::to_string));
+    println!("Extended Alphabet: {vocab:?}\n");
+
+    // Split alphabet character to character to be able to start training
+    // We split alphabet and not vocab as special characters are not standardized
+    let mut splits: HashMap<&str, Vec<String>> = HashMap::new();
+    for word in word_freqs.keys() {
+        let mut vec_of_chars: Vec<String> = Vec::new();
+        for char in word.chars() {
+            vec_of_chars.push(char.to_string());
+        }
+        splits.insert(word, vec_of_chars);
+    }
+    println!("{splits:?}");
+
+    let value = compute_pair_freqs(splits, &word_freqs);
     todo!()
+}
+
+fn compute_pair_freqs(
+    splits: HashMap<&str, Vec<String>>,
+    word_freqs: &HashMap<&str, i32>,
+) -> HashMap<(String, String), i32> {
+    let mut pair_freqs: HashMap<(String, String), i32> = HashMap::new();
+
+    for (word, freq) in word_freqs {
+        let split = splits[word].clone();
+        if split.len() == 1 {
+            continue;
+        }
+        for i in 0..split.len() - 1 {
+            let pair = (
+                split.get(i).unwrap().to_string(),
+                split.get(i + 1).unwrap().to_string(),
+            );
+            *pair_freqs.entry(pair).or_insert(0) += freq;
+        }
+    }
+    pair_freqs
 }
 
 // Regex match pattern

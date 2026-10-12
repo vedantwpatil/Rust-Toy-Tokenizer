@@ -116,15 +116,34 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     }
     println!("Word[char] Dictionary: {splits:?}\n");
 
-    let pair_freqs = compute_pair_freqs(splits, &word_freqs);
+    let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
 
     // Sorted for printing
     descending_pair_sort(&pair_freqs);
+
     todo!()
 }
 
+fn merge_pairs(a: String, b: String, splits: &mut HashMap<&str, Vec<String>>) {
+    for split in splits.values_mut() {
+        if split.iter().len() == 1 {
+            continue;
+        }
+
+        let mut i = 0;
+        while i < split.iter().len() - 1 {
+            if split[i].eq(&a) && split[i + 1].eq(&b) {
+                split[i] = format!("{a}{b}");
+                split.remove(i + 1);
+            } else {
+                i += 1;
+            }
+        }
+    }
+}
+
 fn compute_pair_freqs(
-    splits: HashMap<&str, Vec<String>>,
+    splits: &HashMap<&str, Vec<String>>,
     word_freqs: &HashMap<&str, i32>,
 ) -> HashMap<(String, String), i32> {
     let mut pair_freqs: HashMap<(String, String), i32> = HashMap::new();

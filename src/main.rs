@@ -129,7 +129,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         let mut max_freq = 0;
 
         for (pair, freq) in &pair_freqs {
-            if max_freq == 0 || max_freq < *freq {
+            if *freq > max_freq || (*freq == max_freq && *pair < best_pair) {
                 best_pair = pair.clone();
                 max_freq = *freq;
             }
@@ -146,7 +146,8 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     // Sorted for printing
     descending_pair_sort(&pair_freqs);
 
-    todo!()
+    println!("Updated Vocab: {vocab:?}");
+    vocab
 }
 
 fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {

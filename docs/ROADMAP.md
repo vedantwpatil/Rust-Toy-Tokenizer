@@ -12,7 +12,7 @@ Update in place as work lands. Never delete rows. Estimates are guesses, see [Ti
 
 | Stage | What | Status | Estimate |
 | --- | --- | --- | --- |
-| 1 | Tokenizer: byte-level BPE | In progress (baseline tokenizers and `pre_tokenize` stub in `src/main.rs`) | 3-5 weeks |
+| 1 | Tokenizer: byte-level BPE | In progress (pre-tokenizer, byte alphabet, and trainer done; encoder, decoder, tiktoken oracle test, metrics not started) | 3-5 weeks |
 | 2 | GPT-2 small on CPU | Not started | 6-10 weeks |
 | 3 | Llama-style model + int8 | Not started | 6-8 weeks |
 | 4 | Inference harness traits | Not started | 4-6 weeks |
@@ -163,6 +163,26 @@ decode
 - Treat vocabulary, merges, pre-tokenizer pattern as inputs, not constants. Stage 3 models ship their own.
 
 **Feeds:** stage 2 (ids in and out), stage 4 (id-to-bytes table for grammar masks, streaming decode), stage 5 (token counting, chat-template special tokens).
+
+**Progress.** Update in place, never delete. Design and mechanics of what exists: [DEVELOPMENT_NOTES.md](DEVELOPMENT_NOTES.md#stage-1-byte-level-bpe-trainer).
+
+| Item | State | Date |
+| --- | --- | --- |
+| Pre-tokenizer: GPT-2 regex via `fancy-regex`, `pre_tokenize` | Done, 10 tests with expected splits checked against tiktoken's pattern | |
+| Bytes to unicode: `bytes_to_unicode`, `[char; 256]` indexed by byte | Done, matches GPT-2's reference algorithm on all 256 bytes | 2026-10-16 |
+| Trainer: pair counts, best-pair selection, merge, ordered `merges` | Done, deterministic, stops at `VOCAB_SIZE` or when no pair is left | 2026-10-16 |
+| Trainer and byte-table tests | Done, 8 trainer tests and 2 byte-table tests (20 total in `src/tests.rs`) | 2026-10-16 |
+| Encoder: replay `merges` by rank per chunk | Not started | |
+| Decoder: ids to bytes to UTF-8, streaming hold-back | Not started | |
+| Oracle test against tiktoken `gpt2` | Not started, blocked on id layout (below) | |
+| Metrics: compression ratio, token counts | Not started | |
+| Split train from encode: `Tokenizer { vocab, merges, pattern }`, corpus as an argument | Not started | |
+
+**Open decisions in stage 1**
+
+- **Id layout.** Today `vocab[0]` is `<|endoftext|>`, `vocab[1..=256]` are the bytes in byte order, `vocab[257 + i]` is merge `i`. GPT-2 puts the 188 printable bytes first, then the 68 shifted bytes, then merges, then `<|endoftext|>` at 50256 (so `Ġ` is id 220 there, id 33 here). Matching tiktoken ids needs either GPT-2's base order or a remap in the oracle test. Undecided.
+- **Tie-break.** Equal-count pairs resolve to the smallest `(String, String)`. Deterministic, but not the rule the HF course or other reference trainers use, so merges after the first tie can differ from theirs. Only matters when comparing trained artifacts. Encoding with published GPT-2 merges is unaffected.
+- **Count type.** Pair counts are `u32`. Overflows past about 4.29e9 occurrences of one pair. Irrelevant at toy scale, revisit before training on a real corpus.
 
 ---
 

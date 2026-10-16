@@ -40,6 +40,53 @@ What are the normalization and pre-tokenization steps?
 We have three major steps  
 normalization, pre-tokenization, splitting words into individual characters, merging the appropriate characters together depending on the rules learned
 
+#### Technical Notes
+
+##### i32 vs u32
+
+Something to be aware of in our implementation is u32 vs i32 in this function particularly
+
+```rust
+fn compute_pair_freqs(
+    splits: &HashMap<&str, Vec<String>>,
+    word_freqs: &HashMap<&str, u32>,
+) -> HashMap<(String, String), u32> {
+    let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
+
+    for (word, freq) in word_freqs {
+        let split = splits[word].clone();
+        for window in split.windows(2) {
+            let pair = (window[0].clone(), window[1].clone());
+            *pair_freqs.entry(pair).or_insert(0) += freq;
+        }
+    }
+    pair_freqs
+}
+```
+
+Pair counts are `u32`, not `i32`. A count is never negative and `u32` doubles the range, but that only raises the limit: a pair count is bounded by the corpus size in bytes, so `u32` is safe up to about 4.29 GB. Overflow panics in a debug build and wraps silently in a release build. The code change and the overflow behaviour are in [I32_VS_U32.md](I32_VS_U32.md).
+
+##### Chars vs Bytes
+
+We now use a byte lookup table instead of letters found in our corpus as our vocab
+
+```rust
+let byte_symbols = bytes_to_unicode();
+let mut vocab: Vec<String> = vec!["<|endoftext|>".to_string()];
+vocab.extend(byte_symbols.iter().map(std::string::ToString::to_string));
+
+let mut splits: HashMap<&str, Vec<String>> = HashMap::new();
+for word in word_freqs.keys() {
+    let vec_of_chars: Vec<String> = word
+        .bytes()
+        .map(|b| byte_symbols[usize::from(b)].to_string())
+        .collect();
+    splits.insert(word, vec_of_chars);
+}
+```
+
+The Hugging Face course starts BPE from the characters found in the corpus. This project starts from the 256 byte values, each mapped to a symbol through `bytes_to_unicode`. That removes the need for an unknown token, makes the base vocabulary fixed, and makes training deterministic. The before and after code, examples, and the reasons for the mapping table are in [CHARS_VS_BYTES.md](CHARS_VS_BYTES.md).
+
 ## How do large language models use different tokenizers for different purposes?
 
 ## How do you implement a tokenizer?

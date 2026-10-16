@@ -15,7 +15,7 @@ fn main() -> Result<(), String> {
     let word_by_word = tokenize_by_word(&prompt);
     let char_by_char = tokenize_by_char(&prompt);
     let byte_by_byte = tokenize_by_byte(&prompt);
-    let bpe = tokenize_bpe(&prompt);
+    let (vocab, merges) = tokenize_bpe(&prompt);
 
     // DISPLAY
     println!("Prompt: {prompt:?}\n");
@@ -30,7 +30,7 @@ fn main() -> Result<(), String> {
     println!("Tokenizing word by word: {word_by_word:?}\n");
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
-    // println!("Tokenize with BPE: {bpe}\n");
+    println!("Tokenize with BPE\nVocab:{vocab:?}\nMerges{merges:?}\n");
     Ok(())
 }
 

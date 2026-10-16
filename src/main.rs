@@ -30,7 +30,7 @@ fn main() -> Result<(), String> {
     println!("Tokenizing word by word: {word_by_word:?}\n");
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
-    println!("Tokenize with BPE\nVocab:{vocab:?}\nMerges{merges:?}\n");
+    println!("Tokenize with BPE\nVocab:{vocab:?}\n\nMerges{merges:?}\n\n");
     Ok(())
 }
 
@@ -57,7 +57,11 @@ fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
     prompt.bytes().collect()
 }
 
+// 257 base symbols (256 bytes plus <|endoftext|>) leave room for 23 merges.
+const VOCAB_SIZE: usize = 280;
+
 fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
+    // TODO: Load a larger corpus
     let corpus: Vec<&str> = if prompt.len() > 100 {
         vec![prompt]
     } else {
@@ -72,7 +76,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     // println!("Corpus: {corpus:?}\n");
 
     // Pre tokenize
-    let mut word_freqs: HashMap<&str, i32> = HashMap::new();
+    let mut word_freqs: HashMap<&str, u32> = HashMap::new();
 
     let re = Regex::new(GPT2_PATTERN).unwrap();
 
@@ -88,40 +92,32 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     // Sorting for printing
     // descending_sort(&word_freqs);
 
-    let mut alphabet: Vec<char> = Vec::new();
-    for word in word_freqs.keys() {
-        for letter in word.chars() {
-            // TODO: Go from .chars() to .bytes()
-            if !alphabet.contains(&letter) {
-                alphabet.push(letter);
-            }
-        }
-    }
+    // Byte-level: all 256 byte symbols start in the vocab whatever the corpus
+    // holds, so no input can contain an unknown symbol.
+    let byte_symbols = bytes_to_unicode();
 
     // alphabet.sort_unstable();
     // println!("Alphabet: {alphabet:?}\n");
     //
     let mut vocab: Vec<String> = vec!["<|endoftext|>".to_string()];
-    vocab.extend(alphabet.iter().map(std::string::ToString::to_string));
+    vocab.extend(byte_symbols.iter().map(std::string::ToString::to_string));
     // println!("Extended Alphabet: {vocab:?}\n");
 
     // Split alphabet character to character to be able to start training
     // We split alphabet and not vocab as special characters are not standardized
     let mut splits: HashMap<&str, Vec<String>> = HashMap::new();
     for word in word_freqs.keys() {
-        let mut vec_of_chars: Vec<String> = Vec::new();
-        // TODO: Go from .chars() to .bytes()
-        for char in word.chars() {
-            vec_of_chars.push(char.to_string());
-        }
+        let vec_of_chars: Vec<String> = word
+            .bytes()
+            .map(|b| byte_symbols[usize::from(b)].to_string())
+            .collect();
         splits.insert(word, vec_of_chars);
     }
     // println!("Word[char] Dictionary: {splits:?}\n");
 
-    let vocab_size = 50;
     let mut merges = Vec::new();
 
-    while vocab.len() < vocab_size {
+    while vocab.len() < VOCAB_SIZE {
         let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
         if pair_freqs.is_empty() {
             break;
@@ -168,9 +164,9 @@ fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {
 
 fn compute_pair_freqs(
     splits: &HashMap<&str, Vec<String>>,
-    word_freqs: &HashMap<&str, i32>,
-) -> HashMap<(String, String), i32> {
-    let mut pair_freqs: HashMap<(String, String), i32> = HashMap::new();
+    word_freqs: &HashMap<&str, u32>,
+) -> HashMap<(String, String), u32> {
+    let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
 
     for (word, freq) in word_freqs {
         let split = splits[word].clone();
@@ -186,10 +182,30 @@ fn compute_pair_freqs(
 const GPT2_PATTERN: &str =
     r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
+// GPT-2's byte -> printable char table, indexed by byte value. Bytes that
+// already print cleanly keep their own char. The other 68 (controls, space,
+// 0x7F-0xA0, 0xAD) are shifted up to U+0100.. in byte order, so space becomes
+// 'Ġ' and newline 'Ċ'.
+fn bytes_to_unicode() -> [char; 256] {
+    let mut table = ['\0'; 256];
+    let mut shifted = 0;
+    for b in 0..=u8::MAX {
+        table[usize::from(b)] = if matches!(b, b'!'..=b'~' | 0xA1..=0xAC | 0xAE..=0xFF) {
+            char::from(b)
+        } else {
+            let c = char::from_u32(256 + shifted).expect("below the surrogate range");
+            shifted += 1;
+            c
+        };
+    }
+    table
+}
+
 fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {
     re.find_iter(text).map(|m| m.unwrap().as_str()).collect()
 }
 
+#[allow(dead_code)]
 fn descending_sort(word_freqs: &HashMap<&str, i32>) {
     println!("Word Frequency Dictionary:");
     let mut sorted: Vec<_> = word_freqs.iter().collect();
@@ -200,6 +216,7 @@ fn descending_sort(word_freqs: &HashMap<&str, i32>) {
     println!();
 }
 
+#[allow(dead_code)]
 fn descending_pair_sort(pair_freqs: &HashMap<(String, String), i32>) {
     println!("BPE Dictionary:");
     let mut sorted: Vec<_> = pair_freqs.iter().collect();

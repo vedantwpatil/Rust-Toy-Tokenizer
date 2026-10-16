@@ -90,3 +90,105 @@ fn chunks_join_back_to_input() {
         assert_eq!(split(s).concat(), s);
     }
 }
+
+// A prompt of 100 bytes or less makes tokenize_bpe train on the toy corpus.
+fn train() -> (Vec<String>, Vec<(String, String)>) {
+    tokenize_bpe("hi")
+}
+
+// 256 byte symbols plus <|endoftext|>.
+const START_VOCAB: usize = 257;
+
+#[test]
+fn byte_table_matches_gpt2() {
+    let table = bytes_to_unicode();
+    assert_eq!(table[usize::from(b' ')], '\u{120}'); // 'Ġ'
+    assert_eq!(table[usize::from(b'\n')], '\u{10a}'); // 'Ċ'
+    assert_eq!(table[usize::from(b'a')], 'a');
+    assert_eq!(table[0], '\u{100}'); // 'Ā', first shifted byte
+    assert_eq!(table[255], '\u{ff}'); // 'ÿ' maps to itself
+}
+
+// Distinct chars make the table reversible, and printable ones mean a token
+// can be shown and stored as ordinary text.
+#[test]
+fn byte_table_is_distinct_and_printable() {
+    let table = bytes_to_unicode();
+    let distinct: std::collections::HashSet<char> = table.iter().copied().collect();
+    assert_eq!(distinct.len(), 256);
+    assert!(table.iter().all(|c| !c.is_control() && !c.is_whitespace()));
+}
+
+// ("Ġ", "t") is a space followed by t. It occurs 7 times and no other pair
+// ties it, so this holds whatever the tie-break rule is.
+#[test]
+fn first_merge_is_space_t() {
+    let (_, merges) = train();
+    assert_eq!(merges[0], ("\u{120}".to_string(), "t".to_string()));
+}
+
+// The base alphabet is all 256 bytes in byte order, even those the corpus
+// never uses, so the front of the vocab does not depend on the training text.
+#[test]
+fn base_alphabet_is_all_256_bytes() {
+    let (vocab, _) = train();
+    assert_eq!(vocab[0], "<|endoftext|>");
+    for (b, c) in bytes_to_unicode().iter().enumerate() {
+        assert_eq!(vocab[1 + b], c.to_string());
+    }
+}
+
+#[test]
+fn trains_to_target_vocab_size() {
+    let (vocab, merges) = train();
+    assert_eq!(vocab.len(), VOCAB_SIZE);
+    assert_eq!(merges.len(), VOCAB_SIZE - START_VOCAB);
+}
+
+#[test]
+fn no_empty_tokens() {
+    let (vocab, merges) = train();
+    assert!(vocab.iter().all(|t| !t.is_empty()));
+    assert!(merges.iter().all(|(a, b)| !a.is_empty() && !b.is_empty()));
+}
+
+// vocab[START_VOCAB + i] is the token that merges[i] produced.
+#[test]
+fn vocab_and_merges_stay_aligned() {
+    let (vocab, merges) = train();
+    for (i, (a, b)) in merges.iter().enumerate() {
+        assert_eq!(vocab[START_VOCAB + i], format!("{a}{b}"));
+    }
+}
+
+// Each HashMap gets its own random hash seed, so iteration order differs
+// between calls. Ties between equal-count pairs must be broken by the pair
+// itself, not by which one the loop saw first.
+#[test]
+fn training_is_deterministic() {
+    assert_eq!(train(), train());
+}
+
+// "é" is two UTF-8 bytes and the emoji is four. Every token must still be
+// built only from byte symbols, since the pre-tokenizer cuts on characters
+// but training works on bytes.
+#[test]
+fn non_ascii_corpus_uses_only_byte_symbols() {
+    let text = "caf\u{e9} \u{1F600} ".repeat(10);
+    assert!(text.len() > 100);
+    let (vocab, _) = tokenize_bpe(&text);
+    let table = bytes_to_unicode();
+    assert!(vocab[1..].iter().all(|t| t.chars().all(|c| table.contains(&c))));
+}
+
+// One chunk of 101 identical letters is a single word. Training must stop
+// once it is one token, before reaching the vocab target.
+#[test]
+fn stops_when_no_pairs_remain() {
+    let text = "a".repeat(101);
+    let (vocab, merges) = tokenize_bpe(&text);
+    assert!(vocab.len() < VOCAB_SIZE);
+    assert_eq!(vocab.len(), START_VOCAB + merges.len());
+    assert!(vocab.iter().all(|t| !t.is_empty()));
+    assert!(vocab.contains(&text));
+}

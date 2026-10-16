@@ -57,6 +57,8 @@ fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
     prompt.bytes().collect()
 }
 
+// TODO: Combine the already implemented algorithm to form the formal tokenize
+// Remaining Work: Training loop to merge appropriate pairs
 fn tokenize_bpe(prompt: &str) -> Vec<String> {
     let corpus: Vec<&str> = if prompt.len() > 100 {
         vec![prompt]
@@ -91,6 +93,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     let mut alphabet: Vec<char> = Vec::new();
     for word in word_freqs.keys() {
         for letter in word.chars() {
+            // TODO: Go from .chars() to .bytes()
             if !alphabet.contains(&letter) {
                 alphabet.push(letter);
             }
@@ -109,6 +112,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     let mut splits: HashMap<&str, Vec<String>> = HashMap::new();
     for word in word_freqs.keys() {
         let mut vec_of_chars: Vec<String> = Vec::new();
+        // TODO: Go from .chars() to .bytes()
         for char in word.chars() {
             vec_of_chars.push(char.to_string());
         }
@@ -116,7 +120,28 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     }
     println!("Word[char] Dictionary: {splits:?}\n");
 
-    let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+    let vocab_size = 50;
+    let mut merges: HashMap<(String, String), String> = HashMap::new();
+    let mut pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+    while vocab.len() < vocab_size {
+        pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+        let mut best_pair = (String::new(), String::new());
+        let mut max_freq = 0;
+
+        for (pair, freq) in &pair_freqs {
+            if max_freq == 0 || max_freq < *freq {
+                best_pair = pair.clone();
+                max_freq = *freq;
+            }
+        }
+        let a = &best_pair.0;
+        let b = &best_pair.1;
+        // mutates splits
+        merge_pairs(a, b, &mut splits);
+        let pair_merged = format!("{a}{b}");
+        merges.insert(best_pair, pair_merged.clone());
+        vocab.push(pair_merged);
+    }
 
     // Sorted for printing
     descending_pair_sort(&pair_freqs);
@@ -124,7 +149,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     todo!()
 }
 
-fn merge_pairs(a: String, b: String, splits: &mut HashMap<&str, Vec<String>>) {
+fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {
     for split in splits.values_mut() {
         if split.iter().len() == 1 {
             continue;

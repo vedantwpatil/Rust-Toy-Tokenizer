@@ -57,9 +57,7 @@ fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
     prompt.bytes().collect()
 }
 
-// TODO: Combine the already implemented algorithm to form the formal tokenize
-// Remaining Work: Training loop to merge appropriate pairs
-fn tokenize_bpe(prompt: &str) -> Vec<String> {
+fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     let corpus: Vec<&str> = if prompt.len() > 100 {
         vec![prompt]
     } else {
@@ -71,7 +69,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         ]
     };
 
-    println!("Corpus: {corpus:?}\n");
+    // println!("Corpus: {corpus:?}\n");
 
     // Pre tokenize
     let mut word_freqs: HashMap<&str, i32> = HashMap::new();
@@ -88,7 +86,7 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
     }
 
     // Sorting for printing
-    descending_sort(&word_freqs);
+    // descending_sort(&word_freqs);
 
     let mut alphabet: Vec<char> = Vec::new();
     for word in word_freqs.keys() {
@@ -100,12 +98,12 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         }
     }
 
-    alphabet.sort_unstable();
-    println!("Alphabet: {alphabet:?}\n");
-
+    // alphabet.sort_unstable();
+    // println!("Alphabet: {alphabet:?}\n");
+    //
     let mut vocab: Vec<String> = vec!["<|endoftext|>".to_string()];
     vocab.extend(alphabet.iter().map(std::string::ToString::to_string));
-    println!("Extended Alphabet: {vocab:?}\n");
+    // println!("Extended Alphabet: {vocab:?}\n");
 
     // Split alphabet character to character to be able to start training
     // We split alphabet and not vocab as special characters are not standardized
@@ -118,13 +116,16 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         }
         splits.insert(word, vec_of_chars);
     }
-    println!("Word[char] Dictionary: {splits:?}\n");
+    // println!("Word[char] Dictionary: {splits:?}\n");
 
     let vocab_size = 50;
-    let mut merges: HashMap<(String, String), String> = HashMap::new();
-    let mut pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+    let mut merges = Vec::new();
+
     while vocab.len() < vocab_size {
-        pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+        let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
+        if pair_freqs.is_empty() {
+            break;
+        }
         let mut best_pair = (String::new(), String::new());
         let mut max_freq = 0;
 
@@ -136,18 +137,15 @@ fn tokenize_bpe(prompt: &str) -> Vec<String> {
         }
         let a = &best_pair.0;
         let b = &best_pair.1;
+
         // mutates splits
         merge_pairs(a, b, &mut splits);
         let pair_merged = format!("{a}{b}");
-        merges.insert(best_pair, pair_merged.clone());
+        merges.push(best_pair);
         vocab.push(pair_merged);
     }
 
-    // Sorted for printing
-    descending_pair_sort(&pair_freqs);
-
-    println!("Updated Vocab: {vocab:?}");
-    vocab
+    (vocab, merges)
 }
 
 fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {

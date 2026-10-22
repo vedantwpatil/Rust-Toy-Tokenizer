@@ -91,9 +91,9 @@ fn chunks_join_back_to_input() {
     }
 }
 
-// A prompt of 100 bytes or less makes tokenize_bpe train on the toy corpus.
+// Trains on the toy corpus at the default vocab size.
 fn train() -> (Vec<String>, Vec<(String, String)>) {
-    tokenize_bpe("hi")
+    tokenize_bpe(&TOY_CORPUS, VOCAB_SIZE)
 }
 
 // 256 byte symbols plus <|endoftext|>.
@@ -175,8 +175,7 @@ fn training_is_deterministic() {
 #[test]
 fn non_ascii_corpus_uses_only_byte_symbols() {
     let text = "caf\u{e9} \u{1F600} ".repeat(10);
-    assert!(text.len() > 100);
-    let (vocab, _) = tokenize_bpe(&text);
+    let (vocab, _) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE);
     let table = bytes_to_unicode();
     assert!(vocab[1..].iter().all(|t| t.chars().all(|c| table.contains(&c))));
 }
@@ -186,9 +185,26 @@ fn non_ascii_corpus_uses_only_byte_symbols() {
 #[test]
 fn stops_when_no_pairs_remain() {
     let text = "a".repeat(101);
-    let (vocab, merges) = tokenize_bpe(&text);
+    let (vocab, merges) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE);
     assert!(vocab.len() < VOCAB_SIZE);
     assert_eq!(vocab.len(), START_VOCAB + merges.len());
     assert!(vocab.iter().all(|t| !t.is_empty()));
     assert!(vocab.contains(&text));
+}
+
+// Decode in miniature: looking every id up in vocab and joining the tokens
+// must give back the byte-symbol form of the input. Pre-tokenizer chunks
+// cover the whole text, so this holds for the text as a whole.
+#[test]
+fn encode_ids_join_back_to_symbols() {
+    let (vocab, merges) = train();
+    let ranks = build_ranks(&merges);
+    let vocab_ids = build_vocab_ids(&vocab);
+    let table = bytes_to_unicode();
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    for text in ["the tokenizer", " caf\u{e9} \u{1F600}", "x", ""] {
+        let ids = encode(text, &re, &ranks, &table, &vocab_ids);
+        let joined: String = ids.iter().map(|&id| vocab[id].as_str()).collect();
+        assert_eq!(joined, to_symbols(&table, text).concat());
+    }
 }

@@ -15,7 +15,13 @@ fn main() -> Result<(), String> {
     let word_by_word = tokenize_by_word(&prompt);
     let char_by_char = tokenize_by_char(&prompt);
     let byte_by_byte = tokenize_by_byte(&prompt);
-    let (vocab, merges) = tokenize_bpe(&prompt);
+    // TODO: Load a larger corpus
+    let corpus: Vec<&str> = if prompt.len() > 100 {
+        vec![prompt.as_str()]
+    } else {
+        TOY_CORPUS.to_vec()
+    };
+    let (vocab, merges) = tokenize_bpe(&corpus, VOCAB_SIZE);
 
     // DISPLAY
     println!("Prompt: {prompt:?}\n");
@@ -31,6 +37,16 @@ fn main() -> Result<(), String> {
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
     println!("Tokenize with BPE\nVocab:{vocab:?}\n\nMerges{merges:?}\n\n");
+
+    // ranks and vocab_ids are derived once from merges and vocab, then reused by encode
+    let ranks = build_ranks(&merges);
+    let vocab_ids = build_vocab_ids(&vocab);
+    let byte_symbols = bytes_to_unicode();
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let ids = encode(&prompt, &re, &ranks, &byte_symbols, &vocab_ids);
+    let tokens: Vec<&str> = ids.iter().map(|&id| vocab[id].as_str()).collect();
+    println!("Encoded ids: {ids:?}\n");
+    println!("Encoded tokens: {tokens:?}\n");
 
     Ok(())
 }
@@ -61,19 +77,14 @@ fn tokenize_by_byte(prompt: &str) -> Vec<u8> {
 // 257 base symbols (256 bytes plus <|endoftext|>) leave room for 23 merges.
 const VOCAB_SIZE: usize = 280;
 
-fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
-    // TODO: Load a larger corpus
-    let corpus: Vec<&str> = if prompt.len() > 100 {
-        vec![prompt]
-    } else {
-        vec![
-            "This is the hugging face course",
-            "This chapter is about tokenization",
-            "This section shows several tokenizer algorithms",
-            "Hopefully, you will be able to understand how they are trained and generate tokens.",
-        ]
-    };
+const TOY_CORPUS: [&str; 4] = [
+    "This is the hugging face course",
+    "This chapter is about tokenization",
+    "This section shows several tokenizer algorithms",
+    "Hopefully, you will be able to understand how they are trained and generate tokens.",
+];
 
+fn tokenize_bpe(corpus: &[&str], vocab_size: usize) -> (Vec<String>, Vec<(String, String)>) {
     // println!("Corpus: {corpus:?}\n");
 
     // Pre tokenize
@@ -82,7 +93,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     let re = Regex::new(GPT2_PATTERN).unwrap();
 
     // pre_tokenize step?
-    for text in corpus {
+    for &text in corpus {
         let tokenize = pre_tokenize(&re, text);
         // Next step is the compute the frequency of each word in the tokenized corpus
         for word in tokenize {
@@ -114,7 +125,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
 
     let mut merges: Vec<(String, String)> = Vec::new();
 
-    while vocab.len() < VOCAB_SIZE {
+    while vocab.len() < vocab_size {
         let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
         if pair_freqs.is_empty() {
             break;
@@ -143,7 +154,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
 fn encode_chunk(
     chunk: &str,
     ranks: &HashMap<(String, String), usize>,
-    byte_symbols: [char; 256],
+    byte_symbols: &[char; 256],
 ) -> Vec<String> {
     let mut pieces = to_symbols(&byte_symbols, chunk);
     loop {
@@ -181,7 +192,7 @@ fn encode(
 ) -> Vec<usize> {
     let mut ids = Vec::new();
     for chunk in pre_tokenize(re, text) {
-        for piece in encode_chunk(chunk, ranks, *byte_symbols) {
+        for piece in encode_chunk(chunk, ranks, byte_symbols) {
             ids.push(vocab_ids[&piece]);
         }
     }
@@ -202,6 +213,15 @@ fn build_ranks(merges: &[(String, String)]) -> HashMap<(String, String), usize> 
         ranks.insert(pair.clone(), i);
     }
     ranks
+}
+
+fn build_vocab_ids(vocab: &[String]) -> HashMap<String, usize> {
+    let mut ids: HashMap<String, usize> = HashMap::new();
+    for (a, b) in vocab.iter().enumerate() {
+        ids.insert(b.clone(), a);
+    }
+
+    ids
 }
 
 fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {
@@ -263,28 +283,6 @@ fn bytes_to_unicode() -> [char; 256] {
 
 fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {
     re.find_iter(text).map(|m| m.unwrap().as_str()).collect()
-}
-
-#[allow(dead_code)]
-fn descending_sort(word_freqs: &HashMap<&str, i32>) {
-    println!("Word Frequency Dictionary:");
-    let mut sorted: Vec<_> = word_freqs.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
-    for (word, count) in sorted {
-        println!("Count: {count:>3}, \tWord: {word:?}");
-    }
-    println!();
-}
-
-#[allow(dead_code)]
-fn descending_pair_sort(pair_freqs: &HashMap<(String, String), i32>) {
-    println!("BPE Dictionary:");
-    let mut sorted: Vec<_> = pair_freqs.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
-    for (pair, count) in sorted {
-        println!("Count: {count:>3}, \tPair: {pair:?}");
-    }
-    println!();
 }
 
 #[cfg(test)]

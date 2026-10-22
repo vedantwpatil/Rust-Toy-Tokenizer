@@ -19,7 +19,7 @@ word_freqs: HashMap<&str, u32>        chunk -> occurrences in corpus
    ▼
 splits: HashMap<&str, Vec<String>>    chunk -> its current symbols
    │
-   │  loop until vocab.len() == VOCAB_SIZE or no pair is left
+   │  loop until vocab.len() == vocab_size or no pair is left
    │    compute_pair_freqs(&splits, &word_freqs) -> HashMap<(String, String), u32>
    │    best pair = max by (count, then smallest pair)
    │    merge_pairs(a, b, &mut splits)            rewrites every chunk in place
@@ -30,7 +30,7 @@ splits: HashMap<&str, Vec<String>>    chunk -> its current symbols
 
 ### Output contract
 
-`tokenize_bpe` returns `(vocab, merges)`.
+`tokenize_bpe(corpus: &[&str], vocab_size: usize)` returns `(vocab, merges)`.
 
 | Index                               | Content                                                     |
 | ----------------------------------- | ----------------------------------------------------------- |
@@ -84,7 +84,7 @@ Each iteration:
 4. **Merge.** `merge_pairs` rewrites every chunk's symbol list in place.
 5. **Record.** Push the pair onto `merges` and the concatenation onto `vocab`.
 
-`while vocab.len() < VOCAB_SIZE` ends the loop at the target size.
+`while vocab.len() < vocab_size` ends the loop at the target size.
 
 **Selection is order-independent.** `HashMap` uses a per-instance random seed, so two maps with the same contents iterate in different orders, and so does the same code on two runs. A rule like "first pair seen with the max count" therefore picks different merges between runs. The rule here, maximum under `(count, smaller pair)`, is a total order, so the winner is the same whatever the iteration order. `training_is_deterministic` trains twice and compares. HF's Python course code is deterministic only because Python dicts keep insertion order. For that reason this tie-break differs from the course: on the toy corpus, `("e", "r")`, `("i", "s")` and `("Ġ", "a")` all occur 5 times. This repo takes them in byte order of the pair (`er`, `is`, `Ġa`), where the course takes `is` before `er`. Only the first merge, `("Ġ", "t")` with 7 occurrences (` the`, ` tokenization`, ` tokenizer`, ` to`, ` they`, ` trained`, ` tokens`), has no tie.
 
@@ -103,7 +103,7 @@ Every iteration recounts all pairs from scratch.
 
 Resolved items stay in place, marked resolved. Never delete.
 
-- **Open: corpus selection.** `tokenize_bpe(prompt)` trains on the prompt if it is over 100 bytes, otherwise on four fixed sentences from the HF course, and the target size is the `VOCAB_SIZE` constant. Training and encoding are coupled to the same string. Resolved by the `Tokenizer { vocab, merges, pattern }` split: the corpus becomes an argument and `main` chooses it.
+- **Resolved (2026-10-22): corpus selection.** `tokenize_bpe(prompt)` used to train on the prompt if it was over 100 bytes, otherwise on four fixed sentences from the HF course, with the target size fixed at the `VOCAB_SIZE` constant. The corpus and `vocab_size` are now arguments. `main` still applies the 100-byte rule and passes `TOY_CORPUS` or the prompt, and `VOCAB_SIZE` stays as the default it passes. The `Tokenizer { vocab, merges, pattern }` struct is still to come.
 - **Open: id layout differs from GPT-2.** Here the bytes sit in byte order after `<|endoftext|>`. GPT-2 puts the 188 printable bytes first, then the 68 shifted ones, then merges, then `<|endoftext|>` at 50256. In GPT-2 `Ġ` is id 220 and the first merge `Ġt` is id 256. Here `Ġ` is id 33. Matching tiktoken's ids needs either GPT-2's base order or a remap inside the oracle test.
 - **Open: tie-break differs from reference trainers.** See above. It affects trained artifacts only, not encoding with published GPT-2 merges.
 - **Open: no encoder or decoder.** Merges are learned but never replayed on new text.
@@ -113,7 +113,7 @@ Resolved items stay in place, marked resolved. Never delete.
 
 ### Tests
 
-20 tests in `src/tests.rs`. The first 10 cover the pre-tokenizer (splits checked against tiktoken's pattern). The rest cover the byte table and trainer. Most trainer tests call `tokenize_bpe("hi")`, whose short prompt selects the toy corpus. The last two pass their own text.
+20 tests in `src/tests.rs`. The first 10 cover the pre-tokenizer (splits checked against tiktoken's pattern). The rest cover the byte table and trainer. Most trainer tests go through `train()`, which passes `TOY_CORPUS` and `VOCAB_SIZE` to `tokenize_bpe`. The last two pass their own text as a one-element corpus.
 
 | Test                                      | What it guards                                                                                          |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |

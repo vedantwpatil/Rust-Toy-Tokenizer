@@ -31,6 +31,7 @@ fn main() -> Result<(), String> {
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
     println!("Tokenize with BPE\nVocab:{vocab:?}\n\nMerges{merges:?}\n\n");
+
     Ok(())
 }
 
@@ -107,11 +108,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     // We split alphabet and not vocab as special characters are not standardized
     let mut splits: HashMap<&str, Vec<String>> = HashMap::new();
     for word in word_freqs.keys() {
-        let vec_of_chars: Vec<String> = word
-            .bytes()
-            .map(|b| byte_symbols[usize::from(b)].to_string())
-            .collect();
-        splits.insert(word, vec_of_chars);
+        splits.insert(word, to_symbols(&byte_symbols, word));
     }
     // println!("Word[char] Dictionary: {splits:?}\n");
 
@@ -140,14 +137,71 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
         merges.push(best_pair);
         vocab.push(pair_merged);
     }
-    // TODO: This is how we calculate the ranks. This should be built out into it's own function
+
+    (vocab, merges)
+}
+fn encode_chunk(
+    chunk: &str,
+    ranks: &HashMap<(String, String), usize>,
+    byte_symbols: [char; 256],
+) -> Vec<String> {
+    let mut pieces = to_symbols(&byte_symbols, chunk);
+    loop {
+        // index, rank
+        let mut best: Option<(usize, usize)> = None;
+
+        for (i, w) in pieces.windows(2).enumerate() {
+            let key: (String, String) = (w[0].clone(), w[1].clone());
+            if let Some(&rank) = ranks.get(&key) {
+                if best.is_none() || rank < best.unwrap().1 {
+                    best = Some((i, rank));
+                }
+            }
+        }
+
+        match best {
+            Some((i, _)) => {
+                let first = &pieces[i];
+                let second = &pieces[i + 1];
+                pieces[i] = format!("{first}{second}");
+                pieces.remove(i + 1);
+            }
+            None => break,
+        }
+    }
+    pieces
+}
+
+fn encode(
+    text: &str,
+    re: &Regex,
+    ranks: &HashMap<(String, String), usize>,
+    byte_symbols: &[char; 256],
+    vocab_ids: &HashMap<String, usize>,
+) -> Vec<usize> {
+    let mut ids = Vec::new();
+    for chunk in pre_tokenize(re, text) {
+        for piece in encode_chunk(chunk, ranks, *byte_symbols) {
+            ids.push(vocab_ids[&piece]);
+        }
+    }
+    ids
+}
+
+fn to_symbols(byte_symbols: &[char; 256], word: &str) -> Vec<String> {
+    let vec_of_chars: Vec<String> = word
+        .bytes()
+        .map(|b| byte_symbols[usize::from(b)].to_string())
+        .collect();
+    vec_of_chars
+}
+
+fn build_ranks(merges: &[(String, String)]) -> HashMap<(String, String), usize> {
     let mut ranks: HashMap<(String, String), usize> = HashMap::new();
     for (i, pair) in merges.iter().enumerate() {
         ranks.insert(pair.clone(), i);
     }
-    println!("Ranks: {ranks:?}\n");
-
-    (vocab, merges)
+    ranks
 }
 
 fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {

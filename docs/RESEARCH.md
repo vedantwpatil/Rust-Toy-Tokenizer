@@ -35,10 +35,33 @@ First phrase that looks somewhat unfamiliar is corpus.
 
 What are the normalization and pre-tokenization steps?
 
+**Note**: Normalization isn't a standard step for industry standard tokenizers but for the current state of our implementation we have a normalization step
+
 **BPE Architecture**
 
-We have three major steps  
-normalization, pre-tokenization, splitting words into individual characters, merging the appropriate characters together depending on the rules learned
+We have three major steps **Train, encode, decode**.
+These each have their own sub steps with the training steps being
+
+- Normalization
+- Pre-tokenization into chunks
+- Split each chunk into byte symbols (according to the lookup table)
+- Merging the appropriate characters together depending on chunk frequency where we pick the most frequent
+- Return those chunks
+
+Encode is somewhat similar
+
+- Normalization
+- pre-tokenization into chunks
+- Map each chunk towards a symbol
+- merging the lowest rank chunks until there are no more previously identified pairs
+- Look up each pair's id and concatenate those
+
+Decode:
+
+- Take our id's and map them to strings in our vocab
+- concatenate those strings
+- Map each character back to their byte
+- Convert those bytes into ut8
 
 #### Technical Notes
 

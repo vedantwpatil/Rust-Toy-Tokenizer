@@ -115,7 +115,7 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
     }
     // println!("Word[char] Dictionary: {splits:?}\n");
 
-    let mut merges = Vec::new();
+    let mut merges: Vec<(String, String)> = Vec::new();
 
     while vocab.len() < VOCAB_SIZE {
         let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
@@ -134,12 +134,18 @@ fn tokenize_bpe(prompt: &str) -> (Vec<String>, Vec<(String, String)>) {
         let a = &best_pair.0;
         let b = &best_pair.1;
 
-        // mutates splits
+        // mutates splits slice
         merge_pairs(a, b, &mut splits);
         let pair_merged = format!("{a}{b}");
         merges.push(best_pair);
         vocab.push(pair_merged);
     }
+    // TODO: This is how we calculate the ranks. This should be built out into it's own function
+    let mut ranks: HashMap<(String, String), usize> = HashMap::new();
+    for (i, pair) in merges.iter().enumerate() {
+        ranks.insert(pair.clone(), i);
+    }
+    println!("Ranks: {ranks:?}\n");
 
     (vocab, merges)
 }

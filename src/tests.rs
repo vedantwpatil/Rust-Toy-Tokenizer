@@ -208,3 +208,49 @@ fn encode_ids_join_back_to_symbols() {
         assert_eq!(joined, to_symbols(&table, text).concat());
     }
 }
+
+fn ranks_from(merges: &[(&str, &str)]) -> HashMap<(String, String), usize> {
+    let owned: Vec<(String, String)> = merges
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+    build_ranks(&owned)
+}
+
+// "lower" has (l,o) rank 0, (w,e) rank 1 and, once lo exists, (lo,w) rank 2.
+// Lowest rank first gives lo, we, r. Merging the leftmost pair that has any
+// rank would take (lo,w) before (w,e) and give low, e, r.
+#[test]
+fn encode_lowest_rank_wins_over_leftmost() {
+    let ranks = ranks_from(&[("l", "o"), ("w", "e"), ("lo", "w")]);
+    let pieces = encode_chunk("lower", &ranks, &bytes_to_unicode());
+    assert_eq!(pieces, ["lo", "we", "r"]);
+}
+
+// Equal ranks tie to the leftmost pair: aaa is (aa)(a), not (a)(aa).
+#[test]
+fn encode_repeated_pair_merges_leftmost_first() {
+    let ranks = ranks_from(&[("a", "a")]);
+    let pieces = encode_chunk("aaa", &ranks, &bytes_to_unicode());
+    assert_eq!(pieces, ["aa", "a"]);
+}
+
+// Merge 0 of the toy corpus is (Ġ, t), so " t" is a single token. Joining the
+// symbols back would pass with no merges at all, this does not.
+#[test]
+fn encode_applies_trained_merges() {
+    let (vocab, merges) = train();
+    let ranks = build_ranks(&merges);
+    let vocab_ids = build_vocab_ids(&vocab);
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let ids = encode(" t", &re, &ranks, &bytes_to_unicode(), &vocab_ids);
+    assert_eq!(ids, [vocab_ids["\u{120}t"]]);
+}
+
+// Two merges can spell the same token, e.g. (ab,c) and (a,bc). vocab_ids
+// would then keep only the later id. Train until no pair is left to see it.
+#[test]
+fn vocab_has_no_duplicate_tokens() {
+    let (vocab, _) = tokenize_bpe(&TOY_CORPUS, 2000);
+    assert_eq!(build_vocab_ids(&vocab).len(), vocab.len());
+}

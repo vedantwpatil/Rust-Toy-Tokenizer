@@ -1,5 +1,5 @@
 use fancy_regex::Regex;
-use std::{collections::HashMap, env};
+use std::{cmp::Reverse, collections::HashMap, env};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -127,18 +127,15 @@ fn tokenize_bpe(corpus: &[&str], vocab_size: usize) -> (Vec<String>, Vec<(String
 
     while vocab.len() < vocab_size {
         let pair_freqs = compute_pair_freqs(&splits, &word_freqs);
-        if pair_freqs.is_empty() {
+        // Highest count wins, ties go to the smallest pair (Reverse flips the
+        // pair order), so the pick does not depend on HashMap iteration order.
+        let Some((best_pair, _)) = pair_freqs
+            .iter()
+            .max_by_key(|(pair, freq)| (**freq, Reverse(*pair)))
+        else {
             break;
-        }
-        let mut best_pair = (String::new(), String::new());
-        let mut max_freq = 0;
-
-        for (pair, freq) in &pair_freqs {
-            if *freq > max_freq || (*freq == max_freq && *pair < best_pair) {
-                best_pair = pair.clone();
-                max_freq = *freq;
-            }
-        }
+        };
+        let best_pair = best_pair.clone();
         let a = &best_pair.0;
         let b = &best_pair.1;
 
@@ -156,17 +153,20 @@ fn encode_chunk(
     ranks: &HashMap<(String, String), usize>,
     byte_symbols: &[char; 256],
 ) -> Vec<String> {
-    let mut pieces = to_symbols(&byte_symbols, chunk);
+    let mut pieces = to_symbols(byte_symbols, chunk);
+    // One key buffer for every lookup: clone_from reuses its allocation.
+    let mut key: (String, String) = (String::new(), String::new());
     loop {
         // index, rank
         let mut best: Option<(usize, usize)> = None;
 
         for (i, w) in pieces.windows(2).enumerate() {
-            let key: (String, String) = (w[0].clone(), w[1].clone());
-            if let Some(&rank) = ranks.get(&key) {
-                if best.is_none() || rank < best.unwrap().1 {
-                    best = Some((i, rank));
-                }
+            key.0.clone_from(&w[0]);
+            key.1.clone_from(&w[1]);
+            if let Some(&rank) = ranks.get(&key)
+                && best.is_none_or(|(_, best_rank)| rank < best_rank)
+            {
+                best = Some((i, rank));
             }
         }
 
@@ -200,39 +200,36 @@ fn encode(
 }
 
 fn to_symbols(byte_symbols: &[char; 256], word: &str) -> Vec<String> {
-    let vec_of_chars: Vec<String> = word
-        .bytes()
+    word.bytes()
         .map(|b| byte_symbols[usize::from(b)].to_string())
-        .collect();
-    vec_of_chars
+        .collect()
 }
 
 fn build_ranks(merges: &[(String, String)]) -> HashMap<(String, String), usize> {
-    let mut ranks: HashMap<(String, String), usize> = HashMap::new();
-    for (i, pair) in merges.iter().enumerate() {
-        ranks.insert(pair.clone(), i);
-    }
-    ranks
+    merges
+        .iter()
+        .enumerate()
+        .map(|(rank, pair)| (pair.clone(), rank))
+        .collect()
 }
 
 fn build_vocab_ids(vocab: &[String]) -> HashMap<String, usize> {
-    let mut ids: HashMap<String, usize> = HashMap::new();
-    for (a, b) in vocab.iter().enumerate() {
-        ids.insert(b.clone(), a);
-    }
-
-    ids
+    vocab
+        .iter()
+        .enumerate()
+        .map(|(id, token)| (token.clone(), id))
+        .collect()
 }
 
 fn merge_pairs(a: &str, b: &str, splits: &mut HashMap<&str, Vec<String>>) {
     for split in splits.values_mut() {
-        if split.iter().len() == 1 {
+        if split.len() < 2 {
             continue;
         }
 
         let mut i = 0;
-        while i < split.iter().len() - 1 {
-            if split[i].eq(&a) && split[i + 1].eq(&b) {
+        while i + 1 < split.len() {
+            if split[i] == a && split[i + 1] == b {
                 split[i] = format!("{a}{b}");
                 split.remove(i + 1);
             } else {
@@ -249,7 +246,7 @@ fn compute_pair_freqs(
     let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
 
     for (word, freq) in word_freqs {
-        let split = splits[word].clone();
+        let split = &splits[word];
         for window in split.windows(2) {
             let pair = (window[0].clone(), window[1].clone());
             *pair_freqs.entry(pair).or_insert(0) += freq;

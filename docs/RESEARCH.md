@@ -110,6 +110,44 @@ for word in word_freqs.keys() {
 
 The Hugging Face course starts BPE from the characters found in the corpus. This project starts from the 256 byte values, each mapped to a symbol through `bytes_to_unicode`. That removes the need for an unknown token, makes the base vocabulary fixed, and makes training deterministic. The before and after code, examples, and the reasons for the mapping table are in [CHARS_VS_BYTES.md](CHARS_VS_BYTES.md).
 
+## How does a state-of-the-art tokenizer differ from this one?
+
+It is not mainly a difference in corpus size. Production tokenizers (GPT-2, cl100k, o200k, Llama 3) use the same core algorithm as this project: byte-level BPE with rank-ordered merges. The gaps are in five places, and corpus size is not the largest.
+
+### Vocab size
+
+This project trains to `VOCAB_SIZE = 280`, which is 257 base symbols plus 23 merges. GPT-2 uses about 50k, cl100k about 100k, Llama 3 about 128k, o200k about 200k and Gemma about 256k. A larger vocab gives fewer tokens per text but a larger embedding and unembedding matrix. Corpus size is what lets a tokenizer reach a large vocab without learning noise merges, so the two are coupled.
+
+### Corpus mix more than corpus size
+
+Production tokenizers are trained on a subsample of the pretraining data, on the order of GBs, not on all of it. Returns diminish quickly with size. The mix decides which languages, code and whitespace patterns get single tokens. If the tokenizer corpus differs from the model's training corpus, tokens can end up in the vocab that the model never saw in training (the "SolidGoldMagikarp" glitch tokens).
+
+### Pre-tokenizer
+
+`GPT2_PATTERN` is the 2019 regex. cl100k and o200k use case-insensitive contractions, cap digit runs with `\p{N}{1,3}`, and handle newlines and whitespace runs better. Merges never cross a chunk boundary, so the regex decides which tokens can exist at all. This matters most for code and arithmetic. Some tokenizers (SentencePiece, as in Llama 2) skip the regex entirely.
+
+### Special tokens
+
+This project has only `<|endoftext|>`. Production vocabs add chat-template, fill-in-the-middle and tool-call tokens plus reserved slots, matched before the regex split.
+
+### Algorithm cost
+
+The output is the same but the cost is not.
+
+- **Training:** `compute_pair_freqs` rebuilds every pair count on every merge and `merge_pairs` scans every word. Production counts pairs once, then updates only the words that contain the merged pair, using a pair-to-words index and a heap. Symbols are `u32` ids rather than `String` with `format!`.
+- **Encoding:** `encode_chunk` rescans all windows after every merge, which is O(n²) per chunk with allocations. Production uses a linked list plus a min-heap keyed by rank (O(n log n)), or linear-time variants, and caches results per chunk.
+- At 23 merges the naive version is fine. At 100k merges over GBs of text it would not finish.
+
+### Beyond BPE
+
+SuperBPE (merges that cross whitespace), Unigram LM, and byte-level models such as BLT. BPE is still the dominant choice.
+
+### How to measure it here
+
+The planned compression harness answers the original question empirically. Plot bytes per token on held-out text against vocab size, then against corpus size. Vocab size will likely bend the curve first.
+
+The vocab sizes and regex details above are from memory and approximate. Check them against the tiktoken source before relying on them.
+
 ## How do large language models use different tokenizers for different purposes?
 
 ## How do you implement a tokenizer?

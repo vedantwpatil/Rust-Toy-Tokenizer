@@ -1,5 +1,5 @@
 use fancy_regex::Regex;
-use std::{cmp::Reverse, collections::HashMap, env};
+use std::{cmp::Reverse, collections::HashMap, env, string::FromUtf8Error};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -21,7 +21,8 @@ fn main() -> Result<(), String> {
     } else {
         TOY_CORPUS.to_vec()
     };
-    let (vocab, merges) = tokenize_bpe(&corpus, VOCAB_SIZE);
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let (vocab, merges) = tokenize_bpe(&corpus, VOCAB_SIZE, &re);
 
     // DISPLAY
     println!("Prompt: {prompt:?}\n");
@@ -42,11 +43,15 @@ fn main() -> Result<(), String> {
     let ranks = build_ranks(&merges);
     let vocab_ids = build_vocab_ids(&vocab);
     let byte_symbols = bytes_to_unicode();
-    let re = Regex::new(GPT2_PATTERN).unwrap();
     let ids = encode(&prompt, &re, &ranks, &byte_symbols, &vocab_ids);
     let tokens: Vec<&str> = ids.iter().map(|&id| vocab[id].as_str()).collect();
     println!("Encoded ids: {ids:?}\n");
     println!("Encoded tokens: {tokens:?}\n");
+
+    let byte_symbols = bytes_to_unicode();
+    let char_to_byte = build_char_to_byte(&byte_symbols);
+    let decoded_prompt = decode(&ids, &vocab, &char_to_byte).unwrap();
+    println!("Prompt after being encoded and decoded: {decoded_prompt:?}");
 
     Ok(())
 }
@@ -84,25 +89,24 @@ const TOY_CORPUS: [&str; 4] = [
     "Hopefully, you will be able to understand how they are trained and generate tokens.",
 ];
 
-fn tokenize_bpe(corpus: &[&str], vocab_size: usize) -> (Vec<String>, Vec<(String, String)>) {
+fn tokenize_bpe(
+    corpus: &[&str],
+    vocab_size: usize,
+    re: &Regex,
+) -> (Vec<String>, Vec<(String, String)>) {
     // println!("Corpus: {corpus:?}\n");
 
     // Pre tokenize
     let mut word_freqs: HashMap<&str, u32> = HashMap::new();
 
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-
     // pre_tokenize step?
     for &text in corpus {
-        let tokenize = pre_tokenize(&re, text);
+        let tokenize = pre_tokenize(re, text);
         // Next step is the compute the frequency of each word in the tokenized corpus
         for word in tokenize {
             *word_freqs.entry(word).or_insert(0) += 1;
         }
     }
-
-    // Sorting for printing
-    // descending_sort(&word_freqs);
 
     // Byte-level: all 256 byte symbols start in the vocab whatever the corpus
     // holds, so no input can contain an unknown symbol.
@@ -160,13 +164,13 @@ fn encode_chunk(
         // index, rank
         let mut best: Option<(usize, usize)> = None;
 
-        for (i, w) in pieces.windows(2).enumerate() {
-            key.0.clone_from(&w[0]);
-            key.1.clone_from(&w[1]);
+        for (index, rank) in pieces.windows(2).enumerate() {
+            key.0.clone_from(&rank[0]);
+            key.1.clone_from(&rank[1]);
             if let Some(&rank) = ranks.get(&key)
                 && best.is_none_or(|(_, best_rank)| rank < best_rank)
             {
-                best = Some((i, rank));
+                best = Some((index, rank));
             }
         }
 
@@ -197,6 +201,21 @@ fn encode(
         }
     }
     ids
+}
+
+fn decode(
+    ids: &[usize],
+    vocab: &[String],
+    char_to_byte: &HashMap<char, u8>,
+) -> Result<String, FromUtf8Error> {
+    let mut bytes: Vec<u8> = Vec::new();
+    for &id in ids {
+        let token = &vocab[id];
+        for chars in token.chars() {
+            bytes.push(*char_to_byte.get(&chars).unwrap());
+        }
+    }
+    String::from_utf8(bytes)
 }
 
 fn to_symbols(byte_symbols: &[char; 256], word: &str) -> Vec<String> {
@@ -255,7 +274,7 @@ fn compute_pair_freqs(
     pair_freqs
 }
 
-// Regex match pattern
+// GPT-2 regex match pattern
 const GPT2_PATTERN: &str =
     r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
@@ -276,6 +295,14 @@ fn bytes_to_unicode() -> [char; 256] {
         };
     }
     table
+}
+
+fn build_char_to_byte(bytes_symbols: &[char; 256]) -> HashMap<char, u8> {
+    let mut inverse_table: HashMap<char, u8> = HashMap::new();
+    for (index, chars) in bytes_symbols.iter().enumerate() {
+        inverse_table.insert(*chars, index as u8);
+    }
+    inverse_table
 }
 
 fn pre_tokenize<'a>(re: &Regex, text: &'a str) -> Vec<&'a str> {

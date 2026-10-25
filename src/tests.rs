@@ -93,7 +93,8 @@ fn chunks_join_back_to_input() {
 
 // Trains on the toy corpus at the default vocab size.
 fn train() -> (Vec<String>, Vec<(String, String)>) {
-    tokenize_bpe(&TOY_CORPUS, VOCAB_SIZE)
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    tokenize_bpe(&TOY_CORPUS, VOCAB_SIZE, &re)
 }
 
 // 256 byte symbols plus <|endoftext|>.
@@ -175,9 +176,14 @@ fn training_is_deterministic() {
 #[test]
 fn non_ascii_corpus_uses_only_byte_symbols() {
     let text = "caf\u{e9} \u{1F600} ".repeat(10);
-    let (vocab, _) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE);
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let (vocab, _) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE, &re);
     let table = bytes_to_unicode();
-    assert!(vocab[1..].iter().all(|t| t.chars().all(|c| table.contains(&c))));
+    assert!(
+        vocab[1..]
+            .iter()
+            .all(|t| t.chars().all(|c| table.contains(&c)))
+    );
 }
 
 // One chunk of 101 identical letters is a single word. Training must stop
@@ -185,7 +191,8 @@ fn non_ascii_corpus_uses_only_byte_symbols() {
 #[test]
 fn stops_when_no_pairs_remain() {
     let text = "a".repeat(101);
-    let (vocab, merges) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE);
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let (vocab, merges) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE, &re);
     assert!(vocab.len() < VOCAB_SIZE);
     assert_eq!(vocab.len(), START_VOCAB + merges.len());
     assert!(vocab.iter().all(|t| !t.is_empty()));
@@ -251,6 +258,153 @@ fn encode_applies_trained_merges() {
 // would then keep only the later id. Train until no pair is left to see it.
 #[test]
 fn vocab_has_no_duplicate_tokens() {
-    let (vocab, _) = tokenize_bpe(&TOY_CORPUS, 2000);
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let (vocab, _) = tokenize_bpe(&TOY_CORPUS, 2000, &re);
     assert_eq!(build_vocab_ids(&vocab).len(), vocab.len());
+}
+
+// Decode takes the inverse of the byte table, so every symbol char must map
+// back to the byte that produced it.
+#[test]
+fn char_to_byte_inverts_the_table() {
+    let table = bytes_to_unicode();
+    let inverse = build_char_to_byte(&table);
+    assert_eq!(inverse.len(), 256);
+    for b in 0..=u8::MAX {
+        assert_eq!(inverse[&table[usize::from(b)]], b);
+    }
+}
+
+#[test]
+fn decode_of_no_ids_is_empty() {
+    let (vocab, _) = train();
+    let inverse = build_char_to_byte(&bytes_to_unicode());
+    assert_eq!(decode(&[], &vocab, &inverse).unwrap(), "");
+}
+
+// Byte token ids are 1 + the byte (id 0 is <|endoftext|>) and merged tokens
+// come after them, so these ids are " t" followed by "o".
+#[test]
+fn decode_mixes_merged_and_byte_tokens() {
+    let (vocab, _) = train();
+    let vocab_ids = build_vocab_ids(&vocab);
+    let inverse = build_char_to_byte(&bytes_to_unicode());
+    let ids = [vocab_ids["\u{120}t"], 1 + usize::from(b'o')];
+    assert_eq!(decode(&ids, &vocab, &inverse).unwrap(), " to");
+}
+
+// <|endoftext|> is plain ASCII, so id 0 decodes to its own text.
+#[test]
+fn decode_id_zero_is_the_literal_endoftext() {
+    let (vocab, _) = train();
+    let inverse = build_char_to_byte(&bytes_to_unicode());
+    assert_eq!(decode(&[0], &vocab, &inverse).unwrap(), "<|endoftext|>");
+}
+
+// "é" is the bytes C3 A9. Neither byte is valid UTF-8 alone, so decode must
+// collect bytes across tokens and only then build the string. Half a
+// codepoint is reported as an error, not patched over.
+#[test]
+fn decode_rejects_a_cut_codepoint() {
+    let (vocab, _) = train();
+    let inverse = build_char_to_byte(&bytes_to_unicode());
+    let ids = [1 + 0xC3, 1 + 0xA9];
+    assert!(decode(&ids[..1], &vocab, &inverse).is_err());
+    assert_eq!(decode(&ids, &vocab, &inverse).unwrap(), "\u{e9}");
+}
+
+// Trains on `corpus`, then encodes and decodes `text`. Returns the ids too,
+// so tests can look at how the text was split.
+fn round_trip(corpus: &[&str], vocab_size: usize, text: &str) -> (Vec<usize>, String) {
+    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let (vocab, merges) = tokenize_bpe(corpus, vocab_size, &re);
+    let ranks = build_ranks(&merges);
+    let vocab_ids = build_vocab_ids(&vocab);
+    let table = bytes_to_unicode();
+    let ids = encode(text, &re, &ranks, &table, &vocab_ids);
+    let decoded = decode(&ids, &vocab, &build_char_to_byte(&table)).unwrap();
+    (ids, decoded)
+}
+
+fn toy_round_trip(text: &str) -> String {
+    round_trip(&TOY_CORPUS, VOCAB_SIZE, text).1
+}
+
+#[test]
+fn round_trip_ascii() {
+    for text in [
+        "x",
+        "the tokenizer",
+        "This is the hugging face course",
+        "Hello, world!",
+        "I've been to 3 places",
+    ] {
+        assert_eq!(toy_round_trip(text), text);
+    }
+}
+
+#[test]
+fn round_trip_whitespace() {
+    for text in [
+        " ",
+        "   ",
+        "a  b",
+        "  two  spaces",
+        "trailing ",
+        "line\nbreak",
+        "\n\n\n",
+        "\r\n",
+        "tab\there",
+    ] {
+        assert_eq!(toy_round_trip(text), text);
+    }
+}
+
+#[test]
+fn round_trip_empty_string() {
+    assert_eq!(toy_round_trip(""), "");
+}
+
+// Accents, an emoji and CJK (\u{65e5}\u{672c}\u{8a9e}) that the ASCII toy
+// corpus never learns a merge for, so they decode from raw byte tokens.
+#[test]
+fn round_trip_non_ascii() {
+    for text in [
+        "caf\u{e9}",
+        "\u{1F642}",
+        "h\u{e9}llo \u{1F642} w\u{f6}rld",
+        "\u{65e5}\u{672c}\u{8a9e}",
+    ] {
+        assert_eq!(toy_round_trip(text), text);
+    }
+}
+
+// Special tokens are not recognised in the input: the literal string is
+// encoded as ordinary bytes (never id 0) and still comes back unchanged.
+#[test]
+fn round_trip_literal_endoftext() {
+    let text = "a<|endoftext|>b";
+    let (ids, decoded) = round_trip(&TOY_CORPUS, VOCAB_SIZE, text);
+    assert_eq!(decoded, text);
+    assert!(!ids.contains(&0));
+}
+
+// Trained until no pair is left, every corpus chunk is one long merged token.
+#[test]
+fn round_trip_with_long_merged_tokens() {
+    for line in TOY_CORPUS {
+        let (ids, decoded) = round_trip(&TOY_CORPUS, 2000, line);
+        assert_eq!(decoded, line);
+        assert_eq!(ids.len(), split(line).len());
+    }
+}
+
+// main trains on the prompt itself when it is long, so merges can cover the
+// bytes of non-ASCII characters.
+#[test]
+fn round_trip_when_trained_on_the_text() {
+    let text = "caf\u{e9} \u{1F642} au lait, na\u{ef}ve r\u{e9}sum\u{e9} \u{1F642}\n".repeat(5);
+    let (ids, decoded) = round_trip(&[text.as_str()], VOCAB_SIZE, &text);
+    assert_eq!(decoded, text);
+    assert!(ids.len() < text.len());
 }

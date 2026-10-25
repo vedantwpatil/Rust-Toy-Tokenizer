@@ -1,4 +1,5 @@
 use super::*;
+use std::time::{Duration, Instant};
 
 // Expected splits were checked against tiktoken's gpt2 pattern, run through
 // the python `regex` module.
@@ -204,15 +205,11 @@ fn stops_when_no_pairs_remain() {
 // cover the whole text, so this holds for the text as a whole.
 #[test]
 fn encode_ids_join_back_to_symbols() {
-    let (vocab, merges) = train();
-    let ranks = build_ranks(&merges);
-    let vocab_ids = build_vocab_ids(&vocab);
-    let table = bytes_to_unicode();
-    let re = Regex::new(GPT2_PATTERN).unwrap();
+    let tok = toy_tokenizer();
     for text in ["the tokenizer", " caf\u{e9} \u{1F600}", "x", ""] {
-        let ids = encode(text, &re, &ranks, &table, &vocab_ids);
-        let joined: String = ids.iter().map(|&id| vocab[id].as_str()).collect();
-        assert_eq!(joined, to_symbols(&table, text).concat());
+        let ids = tok.encode(text);
+        let joined: String = ids.iter().map(|&id| tok.vocab[id].as_str()).collect();
+        assert_eq!(joined, to_symbols(&tok.byte_symbols, text).concat());
     }
 }
 
@@ -246,12 +243,8 @@ fn encode_repeated_pair_merges_leftmost_first() {
 // symbols back would pass with no merges at all, this does not.
 #[test]
 fn encode_applies_trained_merges() {
-    let (vocab, merges) = train();
-    let ranks = build_ranks(&merges);
-    let vocab_ids = build_vocab_ids(&vocab);
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let ids = encode(" t", &re, &ranks, &bytes_to_unicode(), &vocab_ids);
-    assert_eq!(ids, [vocab_ids["\u{120}t"]]);
+    let tok = toy_tokenizer();
+    assert_eq!(tok.encode(" t"), [tok.vocab_ids["\u{120}t"]]);
 }
 
 // Two merges can spell the same token, e.g. (ab,c) and (a,bc). vocab_ids
@@ -275,30 +268,28 @@ fn char_to_byte_inverts_the_table() {
     }
 }
 
+fn toy_tokenizer() -> Tokenizer {
+    Tokenizer::train(&TOY_CORPUS, VOCAB_SIZE)
+}
+
 #[test]
 fn decode_of_no_ids_is_empty() {
-    let (vocab, _) = train();
-    let inverse = build_char_to_byte(&bytes_to_unicode());
-    assert_eq!(decode(&[], &vocab, &inverse).unwrap(), "");
+    assert_eq!(toy_tokenizer().decode(&[]).unwrap(), "");
 }
 
 // Byte token ids are 1 + the byte (id 0 is <|endoftext|>) and merged tokens
 // come after them, so these ids are " t" followed by "o".
 #[test]
 fn decode_mixes_merged_and_byte_tokens() {
-    let (vocab, _) = train();
-    let vocab_ids = build_vocab_ids(&vocab);
-    let inverse = build_char_to_byte(&bytes_to_unicode());
-    let ids = [vocab_ids["\u{120}t"], 1 + usize::from(b'o')];
-    assert_eq!(decode(&ids, &vocab, &inverse).unwrap(), " to");
+    let tok = toy_tokenizer();
+    let ids = [tok.vocab_ids["\u{120}t"], 1 + usize::from(b'o')];
+    assert_eq!(tok.decode(&ids).unwrap(), " to");
 }
 
-// <|endoftext|> is plain ASCII, so id 0 decodes to its own text.
+// <|endoftext|> is a special, so id 0 decodes to its own text.
 #[test]
 fn decode_id_zero_is_the_literal_endoftext() {
-    let (vocab, _) = train();
-    let inverse = build_char_to_byte(&bytes_to_unicode());
-    assert_eq!(decode(&[0], &vocab, &inverse).unwrap(), "<|endoftext|>");
+    assert_eq!(toy_tokenizer().decode(&[0]).unwrap(), "<|endoftext|>");
 }
 
 // "é" is the bytes C3 A9. Neither byte is valid UTF-8 alone, so decode must
@@ -306,23 +297,18 @@ fn decode_id_zero_is_the_literal_endoftext() {
 // codepoint is reported as an error, not patched over.
 #[test]
 fn decode_rejects_a_cut_codepoint() {
-    let (vocab, _) = train();
-    let inverse = build_char_to_byte(&bytes_to_unicode());
+    let tok = toy_tokenizer();
     let ids = [1 + 0xC3, 1 + 0xA9];
-    assert!(decode(&ids[..1], &vocab, &inverse).is_err());
-    assert_eq!(decode(&ids, &vocab, &inverse).unwrap(), "\u{e9}");
+    assert!(tok.decode(&ids[..1]).is_err());
+    assert_eq!(tok.decode(&ids).unwrap(), "\u{e9}");
 }
 
 // Trains on `corpus`, then encodes and decodes `text`. Returns the ids too,
 // so tests can look at how the text was split.
 fn round_trip(corpus: &[&str], vocab_size: usize, text: &str) -> (Vec<usize>, String) {
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let (vocab, merges) = tokenize_bpe(corpus, vocab_size, &re);
-    let ranks = build_ranks(&merges);
-    let vocab_ids = build_vocab_ids(&vocab);
-    let table = bytes_to_unicode();
-    let ids = encode(text, &re, &ranks, &table, &vocab_ids);
-    let decoded = decode(&ids, &vocab, &build_char_to_byte(&table)).unwrap();
+    let tok = Tokenizer::train(corpus, vocab_size);
+    let ids = tok.encode(text);
+    let decoded = tok.decode(&ids).unwrap();
     (ids, decoded)
 }
 
@@ -379,16 +365,6 @@ fn round_trip_non_ascii() {
     }
 }
 
-// Special tokens are not recognised in the input: the literal string is
-// encoded as ordinary bytes (never id 0) and still comes back unchanged.
-#[test]
-fn round_trip_literal_endoftext() {
-    let text = "a<|endoftext|>b";
-    let (ids, decoded) = round_trip(&TOY_CORPUS, VOCAB_SIZE, text);
-    assert_eq!(decoded, text);
-    assert!(!ids.contains(&0));
-}
-
 // Trained until no pair is left, every corpus chunk is one long merged token.
 #[test]
 fn round_trip_with_long_merged_tokens() {
@@ -407,4 +383,162 @@ fn round_trip_when_trained_on_the_text() {
     let (ids, decoded) = round_trip(&[text.as_str()], VOCAB_SIZE, &text);
     assert_eq!(decoded, text);
     assert!(ids.len() < text.len());
+}
+
+// Specials are cut out of the text before pre-tokenization and emitted as one
+// id (0 here), whatever surrounds them. 'a' is byte 97, so id 98.
+#[test]
+fn endoftext_in_text_is_one_special_id() {
+    let tok = toy_tokenizer();
+    assert_eq!(tok.encode("a<|endoftext|>b"), [98, 0, 99]);
+    assert_eq!(tok.encode("<|endoftext|>"), [0]);
+    assert_eq!(tok.encode("<|endoftext|><|endoftext|>"), [0, 0]);
+}
+
+// A cut-off special is ordinary text.
+#[test]
+fn partial_special_is_plain_text() {
+    let tok = toy_tokenizer();
+    let ids = tok.encode("<|endoftext|");
+    assert!(!ids.contains(&0));
+    assert_eq!(tok.decode(&ids).unwrap(), "<|endoftext|");
+}
+
+#[test]
+fn round_trip_endoftext() {
+    for text in [
+        "a<|endoftext|>b",
+        "<|endoftext|>",
+        "x <|endoftext|>\n<|endoftext|> y",
+    ] {
+        assert_eq!(toy_round_trip(text), text);
+    }
+}
+
+// Of two specials starting at the same spot the longer one wins.
+#[test]
+fn longest_special_wins() {
+    let base = toy_tokenizer();
+    let mut vocab = base.vocab[..START_VOCAB].to_vec();
+    vocab.extend(["<a>".to_string(), "<a>b".to_string()]);
+    let specials = vec![("<a>".to_string(), 257), ("<a>b".to_string(), 258)];
+    let tok = Tokenizer::new(vocab, Vec::new(), GPT2_PATTERN, specials);
+    assert_eq!(tok.encode("<a>b"), [258]);
+    assert_eq!(tok.encode("<a>c"), [257, 1 + 99]);
+}
+
+fn gpt2() -> Tokenizer {
+    Tokenizer::from_gpt2_merges(include_str!("../data/gpt2/merges.txt"))
+}
+
+// Expected ids come from tiktoken's gpt2 encoding, see scripts/gen_oracle.py.
+const ORACLE: &[(&str, &[usize])] = include!("../data/gpt2/oracle_cases.in");
+
+// Built from merges.txt alone, the ids must land where GPT-2 puts them.
+#[test]
+fn gpt2_layout_matches_published_ids() {
+    let tok = gpt2();
+    assert_eq!(tok.vocab.len(), 50257);
+    assert_eq!(tok.vocab_ids["!"], 0);
+    assert_eq!(tok.vocab_ids["\u{120}"], 220);
+    assert_eq!(tok.vocab_ids[ENDOFTEXT], 50256);
+}
+
+#[test]
+fn gpt2_encode_matches_tiktoken() {
+    let tok = gpt2();
+    for &(text, ids) in ORACLE {
+        assert_eq!(tok.encode(text), ids, "encode mismatch for {text:?}");
+    }
+}
+
+#[test]
+fn gpt2_decode_matches_tiktoken() {
+    let tok = gpt2();
+    for &(text, ids) in ORACLE {
+        assert_eq!(
+            tok.decode(ids).unwrap(),
+            text,
+            "decode mismatch for {text:?}"
+        );
+    }
+}
+
+#[test]
+fn bytes_per_token_is_bytes_over_tokens() {
+    assert_eq!(bytes_per_token("abcd", 2), 2.0);
+    assert_eq!(bytes_per_token("abcd", 4), 1.0);
+    assert_eq!(bytes_per_token("", 0), 0.0);
+}
+
+// The byte baseline is 1.0 byte per token by definition. Trained BPE beats it
+// on its own corpus and GPT-2's 50k merges beat the toy vocab.
+#[test]
+fn bpe_compresses_better_than_bytes() {
+    let text = "This is the hugging face course";
+    let trained = toy_tokenizer().encode(text).len();
+    let published = gpt2().encode(text).len();
+    assert!(trained < text.len());
+    assert!(published < trained);
+    assert!(bytes_per_token(text, published) > 3.0);
+}
+
+// Speed benchmarks. Ignored by default: timings only mean something in a
+// release build and are too noisy to pass or fail on. Run with
+//   cargo test --release bench_ -- --ignored --nocapture
+// Each one also checks the ids against tiktoken's (count and hash), so a faster
+// encoder cannot get quicker by getting wrong.
+const BENCH_REPEATS: usize = 50;
+const BENCH_EXPECTED: [(usize, u64); 2] = include!("../data/gpt2/bench_expected.in");
+
+// FNV-1a over the ids, the same rule as fnv() in scripts/gen_oracle.py.
+fn fnv(ids: &[usize]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &id in ids {
+        h = (h ^ id as u64).wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+// Best of 3, so one noisy run does not set the number.
+fn bench_encode(label: &str, tok: &Tokenizer, text: &str, expected: (usize, u64)) {
+    let mut best = Duration::MAX;
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let start = Instant::now();
+        ids = tok.encode(text);
+        best = best.min(start.elapsed());
+    }
+    assert_eq!(
+        (ids.len(), fnv(&ids)),
+        expected,
+        "{label}: ids differ from tiktoken"
+    );
+    let secs = best.as_secs_f64();
+    println!(
+        "{label}: {} bytes -> {} tokens in {:.1} ms ({:.2} MB/s, {:.0} tokens/s)",
+        text.len(),
+        ids.len(),
+        secs * 1000.0,
+        text.len() as f64 / secs / 1e6,
+        ids.len() as f64 / secs,
+    );
+}
+
+// Every oracle text back to back, repeated: mostly short chunks, the usual
+// shape of real text.
+#[test]
+#[ignore]
+fn bench_encode_mixed_text() {
+    let texts: Vec<&str> = ORACLE.iter().map(|&(text, _)| text).collect();
+    let text = texts.join("\n").repeat(BENCH_REPEATS);
+    bench_encode("mixed text", &gpt2(), &text, BENCH_EXPECTED[0]);
+}
+
+// One 4000-byte chunk with no boundary to cut it: the worst case for an encoder
+// whose cost grows with the square of the chunk length.
+#[test]
+#[ignore]
+fn bench_encode_one_long_chunk() {
+    bench_encode("long chunk", &gpt2(), &"a".repeat(4000), BENCH_EXPECTED[1]);
 }

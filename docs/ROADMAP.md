@@ -4,20 +4,20 @@ Project build LLM stack from scratch in Rust, bottom-up: tokenizer, then inferen
 
 Related docs: [CLAUDE.md](../CLAUDE.md) (project conventions, learning context), [RESEARCH.md](RESEARCH.md) (tokenizer research notes), [ARCHITECTURE.md](ARCHITECTURE.md) (how code laid out today).
 
-For agents: read stage in progress plus [Cross-stage constraints](#cross-stage-constraints). Do not pull work forward from later stages unless constraint there asks.
+For adding agents and subagents to the harness read stage in progress plus [Cross-stage constraints](#cross-stage-constraints). Do not pull work forward from later stages unless constraint there asks.
 
 ## Status
 
 Update in place as work lands. Never delete rows. Estimates are guesses, see [Time estimates](#time-estimates).
 
-| Stage | What | Status | Estimate |
-| --- | --- | --- | --- |
-| 1 | Tokenizer: byte-level BPE | In progress (pre-tokenizer, byte alphabet, and trainer done; encoder, decoder, tiktoken oracle test, metrics not started) | 3-5 weeks |
-| 2 | GPT-2 small on CPU | Not started | 6-10 weeks |
-| 3 | Llama-style model + int8 | Not started | 6-8 weeks |
-| 4 | Inference harness traits | Not started | 4-6 weeks |
-| 5 | Coding harness | Not started | 4-8 weeks |
-| 6 | Stretch: Metal or serving | Undecided, leaning Metal | Metal 6-10 weeks, serving 4-8 weeks |
+| Stage | What                      | Status                                                                                                                    | Estimate                            |
+| ----- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| 1     | Tokenizer: byte-level BPE | In progress (pre-tokenizer, byte alphabet, and trainer done; encoder, decoder, tiktoken oracle test, metrics not started) | 3-5 weeks                           |
+| 2     | GPT-2 small on CPU        | Not started                                                                                                               | 6-10 weeks                          |
+| 3     | Llama-style model + int8  | Not started                                                                                                               | 6-8 weeks                           |
+| 4     | Inference harness traits  | Not started                                                                                                               | 4-6 weeks                           |
+| 5     | Coding harness            | Not started                                                                                                               | 4-8 weeks                           |
+| 6     | Stretch: Metal or serving | Undecided, leaning Metal                                                                                                  | Metal 6-10 weeks, serving 4-8 weeks |
 
 ## The stack at a glance
 
@@ -152,9 +152,9 @@ decode
 
 **Done when**
 
-- Ids match tiktoken's `gpt2` encoding on varied corpus: ASCII, code, emoji, CJK, repeated and trailing whitespace, contractions.
-- `decode(encode(s)) == s` for any valid UTF-8, streaming decode never emits half a character.
-- Trainer reproduces hand-computed merges on toy corpus like one above.
+- Ids match tiktoken's `gpt2` encoding on varied corpus: ASCII, code, emoji, CJK, repeated and trailing whitespace, contractions. _Met 2026-10-24: 39 oracle cases plus two benchmark texts (22,200 and 1,000 tokens) match exactly._
+- `decode(encode(s)) == s` for any valid UTF-8, streaming decode never emits half a character. _Round trip met 2026-10-24. Streaming decode not started._
+- Trainer reproduces hand-computed merges on toy corpus like one above. _Partly met: `first_merge_is_space_t` checks the first merge only. The `low`/`lower`/`newest` example above is not a test yet._
 
 **Watch for**
 
@@ -166,22 +166,30 @@ decode
 
 **Progress.** Update in place, never delete. Design and mechanics of what exists: [DEVELOPMENT_NOTES.md](DEVELOPMENT_NOTES.md#stage-1-byte-level-bpe-trainer).
 
-| Item | State | Date |
-| --- | --- | --- |
-| Pre-tokenizer: GPT-2 regex via `fancy-regex`, `pre_tokenize` | Done, 10 tests with expected splits checked against tiktoken's pattern | |
-| Bytes to unicode: `bytes_to_unicode`, `[char; 256]` indexed by byte | Done, matches GPT-2's reference algorithm on all 256 bytes | 2026-10-16 |
-| Trainer: pair counts, best-pair selection, merge, ordered `merges` | Done, deterministic, stops at `VOCAB_SIZE` or when no pair is left | 2026-10-16 |
-| Trainer and byte-table tests | Done, 8 trainer tests and 2 byte-table tests (20 total in `src/tests.rs`) | 2026-10-16 |
-| Encoder: replay `merges` by rank per chunk | Not started | |
-| Decoder: ids to bytes to UTF-8, streaming hold-back | Not started | |
-| Oracle test against tiktoken `gpt2` | Not started, blocked on id layout (below) | |
-| Metrics: compression ratio, token counts | Not started | |
-| Split train from encode: `Tokenizer { vocab, merges, pattern }`, corpus as an argument | Not started | |
+| Item                                                                                         | State                                                                                                                                                                                                                                                                                                                                                                                 | Date       |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Pre-tokenizer: GPT-2 regex via `fancy-regex`, `pre_tokenize`                                 | Done, 10 tests with expected splits checked against tiktoken's pattern                                                                                                                                                                                                                                                                                                                |            |
+| Bytes to unicode: `bytes_to_unicode`, `[char; 256]` indexed by byte                          | Done, matches GPT-2's reference algorithm on all 256 bytes                                                                                                                                                                                                                                                                                                                            | 2026-10-16 |
+| Trainer: pair counts, best-pair selection, merge, ordered `merges`                           | Done, deterministic, stops at `VOCAB_SIZE` or when no pair is left                                                                                                                                                                                                                                                                                                                    | 2026-10-16 |
+| Trainer and byte-table tests                                                                 | Done, 8 trainer tests and 2 byte-table tests (20 total in `src/tests.rs`)                                                                                                                                                                                                                                                                                                             | 2026-10-16 |
+| Encoder: replay `merges` by rank per chunk                                                   | Done, `encode_chunk` plus `Tokenizer::encode`                                                                                                                                                                                                                                                                                                                                         | 2026-10-24 |
+| Decoder: ids to bytes to UTF-8                                                               | Done for a whole id list, strict `from_utf8` (a cut codepoint is an `Err`)                                                                                                                                                                                                                                                                                                            | 2026-10-24 |
+| Decoder: streaming hold-back of an incomplete UTF-8 tail                                     | Not started                                                                                                                                                                                                                                                                                                                                                                           |            |
+| Special tokens: `<\|endoftext\|>` cut out before pre-tokenization, never merged              | Done, longest special wins, decode emits its text                                                                                                                                                                                                                                                                                                                                     | 2026-10-24 |
+| Split train from encode: `Tokenizer { vocab, merges, pattern, specials }`                    | Done, `Tokenizer::train` and `Tokenizer::from_gpt2_merges` build one                                                                                                                                                                                                                                                                                                                  | 2026-10-24 |
+| Load GPT-2 as data                                                                           | Done, `data/gpt2/merges.txt` (OpenAI's `vocab.bpe`, sha256 matches tiktoken's pin). `vocab.json` not needed, the ids follow from the merges                                                                                                                                                                                                                                           | 2026-10-24 |
+| Oracle test against tiktoken `gpt2`                                                          | Done, 39 cases (ASCII, code, emoji, CJK, whitespace, contractions, specials) from `scripts/gen_oracle.py`, ids match exactly                                                                                                                                                                                                                                                          | 2026-10-24 |
+| Metrics: compression ratio, token counts                                                     | Done in `main`: tokens and bytes per token for word, char, byte, trained BPE and GPT-2 BPE. Word row has an unbounded vocab, so it is not a fair comparison. Each row states its vocab size and training data, since a 280-entry vocab trained on four sentences against GPT-2's 50,257 is mostly a data and vocab-size gap, not an algorithm gap                                     | 2026-10-24 |
+| Speed benchmarks: `bench_encode_mixed_text`, `bench_encode_one_long_chunk` in `src/tests.rs` | Done, `#[ignore]`d, run with `cargo test --release bench_ -- --ignored --nocapture`. Each checks token count and an id hash against tiktoken. **Baseline** with the `String`-based `encode_chunk`: 60 KB mixed text in 10.4 ms (5.75 MB/s, 2.1M tokens/s), one 4000-byte chunk in 137.9 ms (0.03 MB/s), about 200x slower per byte, so cost grows with the square of the chunk length | 2026-10-24 |
+| Faster `encode_chunk` (plan below)                                                           | Not started                                                                                                                                                                                                                                                                                                                                                                           |            |
+| Tests overall                                                                                | 45 passing plus the 2 ignored benchmarks, clippy clean                                                                                                                                                                                                                                                                                                                                | 2026-10-24 |
 
 **Open decisions in stage 1**
 
-- **Id layout.** Today `vocab[0]` is `<|endoftext|>`, `vocab[1..=256]` are the bytes in byte order, `vocab[257 + i]` is merge `i`. GPT-2 puts the 188 printable bytes first, then the 68 shifted bytes, then merges, then `<|endoftext|>` at 50256 (so `Ġ` is id 220 there, id 33 here). Matching tiktoken ids needs either GPT-2's base order or a remap in the oracle test. Undecided.
+- **Id layout.** _Resolved 2026-10-24:_ an id is an index into `Tokenizer.vocab`, so each constructor picks its own layout. `from_gpt2_merges` builds GPT-2's (so `Ġ` is 220 and `<|endoftext|>` 50256) and the oracle compares ids directly with no remap. A trained tokenizer keeps the layout below. Original note: today `vocab[0]` is `<|endoftext|>`, `vocab[1..=256]` are the bytes in byte order, `vocab[257 + i]` is merge `i`. GPT-2 puts the 188 printable bytes first, then the 68 shifted bytes, then merges, then `<|endoftext|>` at 50256 (so `Ġ` is id 220 there, id 33 here). Matching tiktoken ids needs either GPT-2's base order or a remap in the oracle test. Undecided.
 - **Tie-break.** Equal-count pairs resolve to the smallest `(String, String)`. Deterministic, but not the rule the HF course or other reference trainers use, so merges after the first tie can differ from theirs. Only matters when comparing trained artifacts. Encoding with published GPT-2 merges is unaffected.
+- **Encoder speed.** Three steps, each measured against the baseline above before the next. (1) Ids instead of `String`s: a `byte_ids` table and a `(left id, right id) -> (rank, merged id)` map built once in `Tokenizer::new`, no allocation or string hashing per merge. (2) Incremental ranks: keep a rank per adjacent pair and recompute only the two pairs a merge touches. (3) Heap plus linked list with a staleness check on pop, O(n log n), which is what the long-chunk case needs, since `Vec::remove` and the per-round rescan keep steps 1 and 2 quadratic. Per-chunk caching (GPT-2's own trick) needs interior mutability and belongs with the stage 4 concurrency work. No target number yet, set one after step 1. The oracle tests and benchmark hashes guard correctness. The two direct `encode_chunk` unit tests need porting when its signature changes.
+- **Special tokens in input.** Open. Specials in text are always recognised and become their id. tiktoken refuses them unless `allowed_special` says otherwise, which matters once untrusted text reaches the tokenizer (stage 5, chat templates). Decide before then whether `encode` takes an allow-list.
 - **Count type.** Pair counts are `u32`. Overflows past about 4.29e9 occurrences of one pair. Irrelevant at toy scale, revisit before training on a real corpus.
 
 ---
@@ -534,13 +542,13 @@ Serving = more transferable skill (vLLM/TGI-style continuous batching), Metal = 
 
 ## Cross-stage constraints
 
-| Constraint | Set in | Pays off in | Why |
-| --- | --- | --- | --- |
-| Tensor ops (matmul, RMSNorm, RoPE, softmax, attention) behind `Backend` trait. CPU path stays correctness reference (logits within ~1e-4 of HF). | Stage 2 | Stage 6 (Metal) | GPU backend must be swappable and checkable against CPU one. |
-| `Session` supports many concurrent sessions from start. | Stage 4 | Stage 6 (serving) | Cheap now, rewrite later. |
-| Tokenizer takes vocabulary, merges, pre-tokenizer pattern as data, not constants. | Stage 1 | Stage 3 | Llama 3 and Qwen ship own. |
-| Tokenizer exposes id-to-bytes table and streaming-safe decode. | Stage 1 | Stages 4, 5, 6 | Grammar masks, stop strings, SSE streaming all work on partial text. |
-| Reference tokenizers and models = test oracles only, never in code path under test. | All | All | Keeps from-scratch rule honest. |
+| Constraint                                                                                                                                       | Set in  | Pays off in       | Why                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ----------------- | -------------------------------------------------------------------- |
+| Tensor ops (matmul, RMSNorm, RoPE, softmax, attention) behind `Backend` trait. CPU path stays correctness reference (logits within ~1e-4 of HF). | Stage 2 | Stage 6 (Metal)   | GPU backend must be swappable and checkable against CPU one.         |
+| `Session` supports many concurrent sessions from start.                                                                                          | Stage 4 | Stage 6 (serving) | Cheap now, rewrite later.                                            |
+| Tokenizer takes vocabulary, merges, pre-tokenizer pattern as data, not constants.                                                                | Stage 1 | Stage 3           | Llama 3 and Qwen ship own.                                           |
+| Tokenizer exposes id-to-bytes table and streaming-safe decode.                                                                                   | Stage 1 | Stages 4, 5, 6    | Grammar masks, stop strings, SSE streaming all work on partial text. |
+| Reference tokenizers and models = test oracles only, never in code path under test.                                                              | All     | All               | Keeps from-scratch rule honest.                                      |
 
 ## Time estimates
 

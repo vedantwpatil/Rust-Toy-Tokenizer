@@ -184,6 +184,8 @@ fn tokenize_bpe(
 
     (vocab, merges)
 }
+
+// TODO: Optimize this, currently very slow and will show up in the future
 fn encode_chunk(
     chunk: &str,
     ranks: &HashMap<(String, String), usize>,

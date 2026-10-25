@@ -1,7 +1,7 @@
 """Regenerates data/gpt2/oracle_cases.in, the expected GPT-2 ids the Rust
 oracle test compares against, and data/gpt2/bench_expected.in, the token count
 and id hash the speed benchmarks check their output against. Needs
-`pip install tiktoken`; run from the repo root with
+`pip install tiktoken`; run from crates/tokenizer with
 `python3 -I scripts/gen_oracle.py`.
 
 The output is a Rust expression (`include!`d by src/tests.rs), so there is no

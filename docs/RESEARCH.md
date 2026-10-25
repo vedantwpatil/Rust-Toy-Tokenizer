@@ -116,7 +116,7 @@ It is not mainly a difference in corpus size. Production tokenizers (GPT-2, cl10
 
 ### Vocab size
 
-This project trains to `VOCAB_SIZE = 280`, which is 257 base symbols plus 23 merges. GPT-2 uses about 50k, cl100k about 100k, Llama 3 about 128k, o200k about 200k and Gemma about 256k. A larger vocab gives fewer tokens per text but a larger embedding and unembedding matrix. Corpus size is what lets a tokenizer reach a large vocab without learning noise merges, so the two are coupled.
+This project's demo trains to `TOY_VOCAB_SIZE = 280`, which is 257 base symbols plus 23 merges. GPT-2 uses about 50k, cl100k about 100k, Llama 3 about 128k, o200k about 200k and Gemma about 256k. A larger vocab gives fewer tokens per text but a larger embedding and unembedding matrix. Corpus size is what lets a tokenizer reach a large vocab without learning noise merges, so the two are coupled.
 
 ### Corpus mix more than corpus size
 

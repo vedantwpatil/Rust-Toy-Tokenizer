@@ -4,6 +4,15 @@ For my analysis on tokenizers and how I went about my approach [analysis](./docs
 
 For the development plan and next steps on this repo look at [roadmap](/docs/ROADMAP.md)
 
+## Layout
+
+Cargo workspace, one crate per layer of the stack. Today:
+
+- `crates/tokenizer`: the library. Byte-level BPE trainer, encoder, decoder, GPT-2 loader, naive char/word/byte baselines, tests and the tiktoken oracle fixtures.
+- `crates/tokenizer-cli`: demo binary, `cargo run -p tokenizer-cli -- "your prompt here"`.
+
+`cargo test` runs everything. Speed benchmarks are ignored by default: `cargo test --release bench_ -- --ignored --nocapture`.
+
 ## Overview
 
 Plan to implement multiple types of tokenizers and experiment with "outdated" tokenizers before building a [BPE](./docs/RESEARCH.md#bpe-byte-pair-encoding) tokenizer from scratch

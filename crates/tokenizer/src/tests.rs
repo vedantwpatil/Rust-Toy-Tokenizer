@@ -1,4 +1,12 @@
-use super::*;
+use crate::byte_level::{build_char_to_byte, bytes_to_unicode, to_symbols};
+use crate::encode::{build_ranks, build_vocab_ids, encode_chunk};
+use crate::pretokenize::{GPT2_PATTERN, pre_tokenize};
+use crate::{
+    ENDOFTEXT, TOY_CORPUS, TOY_VOCAB_SIZE, Tokenizer, bytes_per_token, tokenize_by_byte,
+    tokenize_by_char, tokenize_by_word,
+};
+use fancy_regex::Regex;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 // Expected splits were checked against tiktoken's gpt2 pattern, run through
@@ -94,8 +102,8 @@ fn chunks_join_back_to_input() {
 
 // Trains on the toy corpus at the default vocab size.
 fn train() -> (Vec<String>, Vec<(String, String)>) {
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    tokenize_bpe(&TOY_CORPUS, VOCAB_SIZE, &re)
+    let Tokenizer { vocab, merges, .. } = toy_tokenizer();
+    (vocab, merges)
 }
 
 // 256 byte symbols plus <|endoftext|>.
@@ -143,8 +151,8 @@ fn base_alphabet_is_all_256_bytes() {
 #[test]
 fn trains_to_target_vocab_size() {
     let (vocab, merges) = train();
-    assert_eq!(vocab.len(), VOCAB_SIZE);
-    assert_eq!(merges.len(), VOCAB_SIZE - START_VOCAB);
+    assert_eq!(vocab.len(), TOY_VOCAB_SIZE);
+    assert_eq!(merges.len(), TOY_VOCAB_SIZE - START_VOCAB);
 }
 
 #[test]
@@ -177,8 +185,7 @@ fn training_is_deterministic() {
 #[test]
 fn non_ascii_corpus_uses_only_byte_symbols() {
     let text = "caf\u{e9} \u{1F600} ".repeat(10);
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let (vocab, _) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE, &re);
+    let vocab = Tokenizer::train(&[text.as_str()], TOY_VOCAB_SIZE).vocab;
     let table = bytes_to_unicode();
     assert!(
         vocab[1..]
@@ -192,9 +199,8 @@ fn non_ascii_corpus_uses_only_byte_symbols() {
 #[test]
 fn stops_when_no_pairs_remain() {
     let text = "a".repeat(101);
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let (vocab, merges) = tokenize_bpe(&[text.as_str()], VOCAB_SIZE, &re);
-    assert!(vocab.len() < VOCAB_SIZE);
+    let Tokenizer { vocab, merges, .. } = Tokenizer::train(&[text.as_str()], TOY_VOCAB_SIZE);
+    assert!(vocab.len() < TOY_VOCAB_SIZE);
     assert_eq!(vocab.len(), START_VOCAB + merges.len());
     assert!(vocab.iter().all(|t| !t.is_empty()));
     assert!(vocab.contains(&text));
@@ -251,8 +257,7 @@ fn encode_applies_trained_merges() {
 // would then keep only the later id. Train until no pair is left to see it.
 #[test]
 fn vocab_has_no_duplicate_tokens() {
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let (vocab, _) = tokenize_bpe(&TOY_CORPUS, 2000, &re);
+    let vocab = Tokenizer::train(&TOY_CORPUS, 2000).vocab;
     assert_eq!(build_vocab_ids(&vocab).len(), vocab.len());
 }
 
@@ -269,7 +274,7 @@ fn char_to_byte_inverts_the_table() {
 }
 
 fn toy_tokenizer() -> Tokenizer {
-    Tokenizer::train(&TOY_CORPUS, VOCAB_SIZE)
+    Tokenizer::train(&TOY_CORPUS, TOY_VOCAB_SIZE)
 }
 
 #[test]
@@ -313,7 +318,7 @@ fn round_trip(corpus: &[&str], vocab_size: usize, text: &str) -> (Vec<usize>, St
 }
 
 fn toy_round_trip(text: &str) -> String {
-    round_trip(&TOY_CORPUS, VOCAB_SIZE, text).1
+    round_trip(&TOY_CORPUS, TOY_VOCAB_SIZE, text).1
 }
 
 #[test]
@@ -380,7 +385,7 @@ fn round_trip_with_long_merged_tokens() {
 #[test]
 fn round_trip_when_trained_on_the_text() {
     let text = "caf\u{e9} \u{1F642} au lait, na\u{ef}ve r\u{e9}sum\u{e9} \u{1F642}\n".repeat(5);
-    let (ids, decoded) = round_trip(&[text.as_str()], VOCAB_SIZE, &text);
+    let (ids, decoded) = round_trip(&[text.as_str()], TOY_VOCAB_SIZE, &text);
     assert_eq!(decoded, text);
     assert!(ids.len() < text.len());
 }
@@ -541,4 +546,13 @@ fn bench_encode_mixed_text() {
 #[ignore]
 fn bench_encode_one_long_chunk() {
     bench_encode("long chunk", &gpt2(), &"a".repeat(4000), BENCH_EXPECTED[1]);
+}
+
+// A two-byte char is one char unit but two byte units; words split on any
+// whitespace run and drop it.
+#[test]
+fn baselines_split_as_named() {
+    assert_eq!(tokenize_by_char("h\u{e9}!"), vec!['h', '\u{e9}', '!']);
+    assert_eq!(tokenize_by_byte("h\u{e9}!"), vec![b'h', 0xC3, 0xA9, b'!']);
+    assert_eq!(tokenize_by_word("  a  b\nc "), vec!["a", "b", "c"]);
 }

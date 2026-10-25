@@ -11,16 +11,16 @@ default_job = "check"
 env.CARGO_TERM_COLOR = "always"
 
 [jobs.check]
-command = ["cargo", "check"]
+command = ["cargo", "check", "--workspace"]
 need_stdout = false
 
 [jobs.check-all]
-command = ["cargo", "check", "--all-targets"]
+command = ["cargo", "check", "--workspace", "--all-targets"]
 need_stdout = false
 
 # Run clippy on the default target
 [jobs.clippy]
-command = ["cargo", "clippy"]
+command = ["cargo", "clippy", "--workspace"]
 need_stdout = false
 
 # Run clippy on all targets
@@ -36,13 +36,13 @@ need_stdout = false
 #    ]
 # need_stdout = false
 [jobs.clippy-all]
-command = ["cargo", "clippy", "--all-targets"]
+command = ["cargo", "clippy", "--workspace", "--all-targets"]
 need_stdout = false
 
 # Run clippy in pedantic mode
 # The 'dismiss' feature may come handy
 [jobs.pedantic]
-command = ["cargo", "clippy", "--", "-W", "clippy::pedantic"]
+command = ["cargo", "clippy", "--workspace", "--", "-W", "clippy::pedantic"]
 need_stdout = false
 
 # This job lets you run
@@ -50,7 +50,7 @@ need_stdout = false
 # - a specific test: bacon test -- config::test_default_files
 # - the tests of a package: bacon test -- -- -p config
 [jobs.test]
-command = ["cargo", "test"]
+command = ["cargo", "test", "--workspace"]
 need_stdout = true
 
 [jobs.nextest]
@@ -58,6 +58,7 @@ command = [
   "cargo",
   "nextest",
   "run",
+  "--workspace",
   "--hide-progress-bar",
   "--failure-output",
   "final",
@@ -66,13 +67,13 @@ need_stdout = true
 analyzer = "nextest"
 
 [jobs.doc]
-command = ["cargo", "doc", "--no-deps"]
+command = ["cargo", "doc", "--workspace", "--no-deps"]
 need_stdout = false
 
 # If the doc compiles, then it opens in your browser and bacon switches
 # to the previous job
 [jobs.doc-open]
-command = ["cargo", "doc", "--no-deps", "--open"]
+command = ["cargo", "doc", "--workspace", "--no-deps", "--open"]
 need_stdout = false
 on_success = "back"                               # so that we don't open the browser at each change
 
@@ -82,6 +83,8 @@ on_success = "back"                               # so that we don't open the br
 command = [
   "cargo",
   "run",
+  "-p",
+  "tokenizer-cli",
   # put launch parameters for your program behind a `--` separator
 ]
 need_stdout = true
@@ -104,6 +107,8 @@ scroll_anchor = "auto"
 command = [
   "cargo",
   "run",
+  "-p",
+  "tokenizer-cli",
   # put launch parameters for your program behind a `--` separator
 ]
 need_stdout = true
@@ -127,6 +132,8 @@ allow_warnings = true
 command = [
   "cargo",
   "run",
+  "-p",
+  "tokenizer-cli",
   "--",
   "the final goal of this project is to serve inference from scratch to a custom harness",
 ]

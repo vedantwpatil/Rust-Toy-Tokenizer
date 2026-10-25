@@ -1,5 +1,5 @@
 use fancy_regex::Regex;
-use std::{cmp::Reverse, collections::HashMap, env, string::FromUtf8Error};
+use std::{cmp::Reverse, collections::HashMap, env, fs, string::FromUtf8Error};
 
 fn main() -> Result<(), String> {
     println!("Hello, rust tokenizer!\n");
@@ -21,8 +21,7 @@ fn main() -> Result<(), String> {
     } else {
         TOY_CORPUS.to_vec()
     };
-    let re = Regex::new(GPT2_PATTERN).unwrap();
-    let (vocab, merges) = tokenize_bpe(&corpus, VOCAB_SIZE, &re);
+    let tokenizer = Tokenizer::train(&corpus, VOCAB_SIZE);
 
     // DISPLAY
     println!("Prompt: {prompt:?}\n");
@@ -37,21 +36,54 @@ fn main() -> Result<(), String> {
     println!("Tokenizing word by word: {word_by_word:?}\n");
     println!("Tokenizing char by char: {char_by_char:?}\n");
     println!("Tokenizing byte by byte: {byte_by_byte:?}\n");
-    println!("Tokenize with BPE\nVocab:{vocab:?}\n\nMerges{merges:?}\n\n");
+    println!(
+        "Tokenize with BPE\nVocab:{:?}\n\nMerges{:?}\n\n",
+        tokenizer.vocab, tokenizer.merges
+    );
 
-    // ranks and vocab_ids are derived once from merges and vocab, then reused by encode
-    let ranks = build_ranks(&merges);
-    let vocab_ids = build_vocab_ids(&vocab);
-    let byte_symbols = bytes_to_unicode();
-    let ids = encode(&prompt, &re, &ranks, &byte_symbols, &vocab_ids);
-    let tokens: Vec<&str> = ids.iter().map(|&id| vocab[id].as_str()).collect();
+    let ids = tokenizer.encode(&prompt);
+    let tokens: Vec<&str> = ids.iter().map(|&id| tokenizer.vocab[id].as_str()).collect();
     println!("Encoded ids: {ids:?}\n");
     println!("Encoded tokens: {tokens:?}\n");
 
-    let byte_symbols = bytes_to_unicode();
-    let char_to_byte = build_char_to_byte(&byte_symbols);
-    let decoded_prompt = decode(&ids, &vocab, &char_to_byte).unwrap();
-    println!("Prompt after being encoded and decoded: {decoded_prompt:?}");
+    let decoded_prompt = tokenizer.decode(&ids).unwrap();
+    println!("Prompt after being encoded and decoded: {decoded_prompt:?}\n");
+
+    // METRICS
+    // The trained vocab is tiny, so GPT-2's published merges are the useful
+    // comparison. They load as data; without the file that row is skipped.
+    let trained_on = if corpus.len() == 1 {
+        "the prompt".to_string()
+    } else {
+        format!("{} corpus lines", corpus.len())
+    };
+    let mut counts = vec![
+        ("word".to_string(), word_by_word.len()),
+        ("char".to_string(), char_by_char.len()),
+        ("byte".to_string(), byte_by_byte.len()),
+        (
+            format!(
+                "BPE, {} vocab, trained on {trained_on}",
+                tokenizer.vocab.len()
+            ),
+            ids.len(),
+        ),
+    ];
+    match fs::read_to_string(GPT2_MERGES_PATH) {
+        Ok(merges_txt) => {
+            let gpt2 = Tokenizer::from_gpt2_merges(&merges_txt);
+            counts.push((
+                format!("BPE, {} vocab, GPT-2's training", gpt2.vocab.len()),
+                gpt2.encode(&prompt).len(),
+            ));
+        }
+        Err(e) => println!("(no GPT-2 row: {GPT2_MERGES_PATH}: {e})"),
+    }
+    println!("Compression of the same {} byte prompt", prompt.len());
+    for (name, n) in counts {
+        let ratio = bytes_per_token(&prompt, n);
+        println!("{n:>5} tokens, {ratio:>5.2} bytes/token  {name}");
+    }
 
     Ok(())
 }
@@ -187,35 +219,145 @@ fn encode_chunk(
     pieces
 }
 
-fn encode(
-    text: &str,
-    re: &Regex,
-    ranks: &HashMap<(String, String), usize>,
-    byte_symbols: &[char; 256],
-    vocab_ids: &HashMap<String, usize>,
-) -> Vec<usize> {
-    let mut ids = Vec::new();
-    for chunk in pre_tokenize(re, text) {
-        for piece in encode_chunk(chunk, ranks, byte_symbols) {
-            ids.push(vocab_ids[&piece]);
-        }
-    }
-    ids
+const ENDOFTEXT: &str = "<|endoftext|>";
+
+const GPT2_MERGES_PATH: &str = "data/gpt2/merges.txt";
+
+// Everything encode and decode need, built once. An id is an index into
+// `vocab`, so the layout is whatever the constructor chose: training puts
+// <|endoftext|> first, the GPT-2 loader matches GPT-2's ids.
+struct Tokenizer {
+    vocab: Vec<String>,
+    merges: Vec<(String, String)>,
+    ranks: HashMap<(String, String), usize>,
+    vocab_ids: HashMap<String, usize>,
+    byte_symbols: [char; 256],
+    char_to_byte: HashMap<char, u8>,
+    pattern: Regex,
+    // shortcut: linear scan per lookup, fine for a handful of special tokens
+    specials: Vec<(String, usize)>,
 }
 
-fn decode(
-    ids: &[usize],
-    vocab: &[String],
-    char_to_byte: &HashMap<char, u8>,
-) -> Result<String, FromUtf8Error> {
-    let mut bytes: Vec<u8> = Vec::new();
-    for &id in ids {
-        let token = &vocab[id];
-        for chars in token.chars() {
-            bytes.push(*char_to_byte.get(&chars).unwrap());
+impl Tokenizer {
+    fn new(
+        vocab: Vec<String>,
+        merges: Vec<(String, String)>,
+        pattern: &str,
+        specials: Vec<(String, usize)>,
+    ) -> Self {
+        // An empty special would match at every position and never advance.
+        assert!(specials.iter().all(|(text, _)| !text.is_empty()));
+        let byte_symbols = bytes_to_unicode();
+        Self {
+            ranks: build_ranks(&merges),
+            vocab_ids: build_vocab_ids(&vocab),
+            char_to_byte: build_char_to_byte(&byte_symbols),
+            pattern: Regex::new(pattern).unwrap(),
+            byte_symbols,
+            vocab,
+            merges,
+            specials,
         }
     }
-    String::from_utf8(bytes)
+
+    fn train(corpus: &[&str], vocab_size: usize) -> Tokenizer {
+        let re = Regex::new(GPT2_PATTERN).unwrap();
+        let (vocab, merges) = tokenize_bpe(corpus, vocab_size, &re);
+        Self::new(
+            vocab,
+            merges,
+            GPT2_PATTERN,
+            vec![(ENDOFTEXT.to_string(), 0)],
+        )
+    }
+
+    fn from_gpt2_merges(merges_txt: &str) -> Self {
+        let byte_symbols = bytes_to_unicode();
+        let mut vocab: Vec<String> = (0..=u8::MAX)
+            .filter(|&b| prints_cleanly(b))
+            .chain((0..=u8::MAX).filter(|&b| !prints_cleanly(b)))
+            .map(|b| byte_symbols[usize::from(b)].to_string())
+            .collect();
+        let merges: Vec<(String, String)> = merges_txt
+            .lines()
+            .skip(1)
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let (a, b) = line.split_once(' ').unwrap();
+                (a.to_string(), b.to_string())
+            })
+            .collect();
+        vocab.extend(merges.iter().map(|(a, b)| format!("{a}{b}")));
+        let endoftext_id = vocab.len();
+        vocab.push(ENDOFTEXT.to_string());
+        Tokenizer::new(
+            vocab,
+            merges,
+            GPT2_PATTERN,
+            vec![(ENDOFTEXT.to_string(), endoftext_id)],
+        )
+    }
+
+    // Special tokens are cut out of the text first and emitted as their own id,
+    // so they are never pre-tokenized or merged. Text between them is encoded
+    // normally.
+    fn encode(&self, text: &str) -> Vec<usize> {
+        let mut ids = Vec::new();
+        let mut rest = text;
+        // Earliest special in `rest`, the longest one if several start together.
+        while let Some((at, len, id)) = self
+            .specials
+            .iter()
+            .filter_map(|(special, id)| {
+                rest.find(special.as_str())
+                    .map(|at| (at, special.len(), *id))
+            })
+            .min_by_key(|&(at, len, _)| (at, Reverse(len)))
+        {
+            self.encode_plain(&rest[..at], &mut ids);
+            ids.push(id);
+            rest = &rest[at + len..];
+        }
+        self.encode_plain(rest, &mut ids);
+        ids
+    }
+
+    fn encode_plain(&self, text: &str, ids: &mut Vec<usize>) {
+        for chunk in pre_tokenize(&self.pattern, text) {
+            for piece in encode_chunk(chunk, &self.ranks, &self.byte_symbols) {
+                ids.push(self.vocab_ids[&piece]);
+            }
+        }
+    }
+
+    // Bytes are collected across all tokens and turned into a String once at
+    // the end: one token can hold half of a multi-byte character.
+    fn decode(&self, ids: &[usize]) -> Result<String, FromUtf8Error> {
+        let mut bytes: Vec<u8> = Vec::new();
+        for &id in ids {
+            // A special's text is plain UTF-8, not byte symbols.
+            if let Some((special, _)) = self
+                .specials
+                .iter()
+                .find(|(_, special_id)| *special_id == id)
+            {
+                bytes.extend_from_slice(special.as_bytes());
+                continue;
+            }
+            for chars in self.vocab[id].chars() {
+                bytes.push(self.char_to_byte[&chars]);
+            }
+        }
+        String::from_utf8(bytes)
+    }
+}
+
+// Input bytes per token: higher means the tokenizer compresses more.
+fn bytes_per_token(text: &str, n_tokens: usize) -> f64 {
+    if n_tokens == 0 {
+        return 0.0;
+    }
+    text.len() as f64 / n_tokens as f64
 }
 
 fn to_symbols(byte_symbols: &[char; 256], word: &str) -> Vec<String> {
@@ -278,6 +420,10 @@ fn compute_pair_freqs(
 const GPT2_PATTERN: &str =
     r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
+fn prints_cleanly(b: u8) -> bool {
+    matches!(b, b'!'..=b'~' | 0xA1..=0xAC | 0xAE..=0xFF)
+}
+
 // GPT-2's byte -> printable char table, indexed by byte value. Bytes that
 // already print cleanly keep their own char. The other 68 (controls, space,
 // 0x7F-0xA0, 0xAD) are shifted up to U+0100.. in byte order, so space becomes
@@ -286,7 +432,7 @@ fn bytes_to_unicode() -> [char; 256] {
     let mut table = ['\0'; 256];
     let mut shifted = 0;
     for b in 0..=u8::MAX {
-        table[usize::from(b)] = if matches!(b, b'!'..=b'~' | 0xA1..=0xAC | 0xAE..=0xFF) {
+        table[usize::from(b)] = if prints_cleanly(b) {
             char::from(b)
         } else {
             let c = char::from_u32(256 + shifted).expect("below the surrogate range");
